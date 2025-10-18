@@ -1,98 +1,135 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { checkProximityAndNotify, setupNotifications } from '@/utils/notifications';
+import { getSettings, type NotificationSettings } from '@/utils/settings';
+import {
+    Camera, MapView, PointAnnotation, type MapViewRef,
+} from '@maplibre/maplibre-react-native';
+import { lineString as ls, point as pt } from '@turf/helpers';
+import * as turf from '@turf/turf';
+import * as Location from 'expo-location';
+import type { Feature, LineString } from 'geojson';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Dimensions, StyleSheet } from 'react-native';
 
-export default function HomeScreen() {
+const MAP_STYLE = 'https://api.maptiler.com/maps/streets-v4/style.json?key=P6xL3GTk8oM1rxbEtoly';
+
+type P = {
+  lon: number;
+  lat: number;
+  crosswalk?: boolean;
+  signalized?: boolean;
+  type?: string;
+};
+
+export default function MapScreen() {
+  const [loc, setLoc] = useState<Location.LocationObjectCoords | null>(null);
+  const [ready, setReady] = useState(false);
+  const [ints, setInts] = useState<P[]>([]);
+  const [lastNotificationTime, setLastNotificationTime] = useState(0);
+  const [settings, setSettings] = useState<NotificationSettings | null>(null);
+  const mapRef = useRef<MapViewRef | null>(null);
+
+  useEffect(() => { (async () => {
+    const [locationStatus, userSettings] = await Promise.all([
+      Location.requestForegroundPermissionsAsync(),
+      getSettings()
+    ]);
+    setSettings(userSettings);
+    if (locationStatus.status === 'granted') {
+      setLoc((await Location.getCurrentPositionAsync({})).coords);
+      await setupNotifications();
+    }
+  })(); }, []);
+
+  const run = useCallback(async (userLL: [number, number]) => {
+    if (!mapRef.current || !ready) return;
+    const screen = await mapRef.current.getPointInView?.(userLL); if (!screen) return;
+    const pad = 360, rect:[number,number,number,number] = [screen[0]-pad,screen[1]-pad,screen[0]+pad,screen[1]+pad];
+    const fc = await mapRef.current.queryRenderedFeaturesInRect(rect, undefined, []);
+    const classes = ['motorway','trunk','primary','secondary','tertiary','street','path','pedestrian','residential','minor'];
+    const roads = (fc.features as any[]).filter(f => classes.includes(f?.properties?.class));
+    const lines: Feature<LineString>[] = roads.flatMap((f:any)=>
+      f.geometry.type==='LineString' ? [ls(f.geometry.coordinates)] :
+      (f.geometry.coordinates as number[][][]).map(c=>ls(c))
+    );
+
+    // intersections
+    // Get crosswalk and traffic signal information
+    const crosswalks = (fc.features as any[])
+      .filter(f => f.properties?.crossing === 'marked' || f.properties?.highway === 'crossing');
+    const signals = (fc.features as any[])
+      .filter(f => f.properties?.highway === 'traffic_signals' || f.properties?.traffic_signals === 'yes');
+
+    // Find intersections
+    const raw:P[]=[]; for(let i=0;i<lines.length;i++)for(let j=i+1;j<lines.length;j++)
+      turf.lineIntersect(lines[i],lines[j]).features.forEach(q=>raw.push({
+        lon:q.geometry.coordinates[0],
+        lat:q.geometry.coordinates[1]
+      }));
+
+    // Dedupe and process intersections
+    const dedup:P[]=[]; raw.forEach(a=>{
+      if(!dedup.some(b=>turf.distance(pt([a.lon,a.lat]),pt([b.lon,b.lat]),{units:'meters'})<5)) {
+        // Check if intersection is near a crosswalk or signal
+        const point = pt([a.lon,a.lat]);
+        const hasCrosswalk = crosswalks.some(c => 
+          turf.distance(point, pt(c.geometry.coordinates), {units:'meters'}) < 10
+        );
+        const hasSignals = signals.some(s => 
+          turf.distance(point, pt(s.geometry.coordinates), {units:'meters'}) < 10
+        );
+        
+        dedup.push({
+          ...a,
+          crosswalk: hasCrosswalk,
+          signalized: hasSignals,
+          type: hasCrosswalk ? 'crosswalk' : 'intersection'
+        });
+      }
+    });
+    
+    const three=dedup.filter(p=>{
+      let n=0; for(const l of lines){ if(turf.pointToLineDistance(pt([p.lon,p.lat]),l,{units:'meters'})<1) n++; if(n>=3) return true; }
+      return false;
+    });
+
+    setInts(three);
+    // Check for nearby crosswalks and notify if necessary
+    if (userLL && settings) {
+      const newLastNotificationTime = await checkProximityAndNotify(
+        userLL,
+        three,
+        lastNotificationTime,
+        settings
+      );
+      setLastNotificationTime(newLastNotificationTime);
+    }
+    console.log(`roads=${roads.length} 3+way=${three.length}`);
+  },[ready, lastNotificationTime]);
+
+  useEffect(()=>{ if(!ready) return; let sub:Location.LocationSubscription|null=null;
+    (async()=>{ sub=await Location.watchPositionAsync({accuracy:Location.Accuracy.High,distanceInterval:12},pos=>{
+      setLoc(pos.coords); run([pos.coords.longitude,pos.coords.latitude]); }); })();
+    return()=>sub?.remove();
+  },[ready,run]);
+
+  if(!loc) return <ThemedView style={styles.loading}><ActivityIndicator size="large"/></ThemedView>;
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
-
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    <ThemedView style={styles.container}>
+      <MapView ref={mapRef as any} style={styles.map} mapStyle={MAP_STYLE} onDidFinishRenderingMapFully={()=>setReady(true)}>
+        <Camera zoomLevel={16} centerCoordinate={[loc.longitude,loc.latitude]} />
+        <PointAnnotation id="user" coordinate={[loc.longitude,loc.latitude]}><ThemedView style={styles.user}/></PointAnnotation>
+        {ints.map((p,i)=><PointAnnotation key={i.toString()} id={`i-${i}`} coordinate={[p.lon,p.lat]}><ThemedView style={styles.dot}/></PointAnnotation>)}
+      </MapView>
+    </ThemedView>
   );
 }
 
-const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+const styles=StyleSheet.create({
+  container:{flex:1},
+  map:{width:Dimensions.get('window').width,height:Dimensions.get('window').height},
+  loading:{flex:1,justifyContent:'center',alignItems:'center'},
+  user:{width:14,height:14,borderRadius:7,backgroundColor:'#007AFF',borderWidth:2,borderColor:'#fff'},
+  dot:{width:12,height:12,borderRadius:6,backgroundColor:'red',borderWidth:2,borderColor:'#fff'},
 });

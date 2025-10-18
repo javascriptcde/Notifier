@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1030208199575",
+    "project_id": "notif-ab397",
+    "storage_bucket": "notif-ab397.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1030208199575:android:4e80b5fe06f00842a242d2",
+        "android_client_info": {
+          "package_name": "com.thomasl.notifier"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB1HfU7YmgCFH2pxZ9csTz7hZY1hKH7HtU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
