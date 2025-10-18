@@ -1,8 +1,9 @@
 import { ThemedView } from '@/components/themed-view';
+import { saveIntersections } from '@/utils/intersectionCache';
 import { checkProximityAndNotify, setupNotifications } from '@/utils/notifications';
 import { getSettings, type NotificationSettings } from '@/utils/settings';
 import {
-    Camera, MapView, PointAnnotation, type MapViewRef,
+  Camera, MapView, PointAnnotation, type MapViewRef,
 } from '@maplibre/maplibre-react-native';
 import { lineString as ls, point as pt } from '@turf/helpers';
 import * as turf from '@turf/turf';
@@ -28,6 +29,9 @@ export default function MapScreen() {
   const [lastNotificationTime, setLastNotificationTime] = useState(0);
   const [settings, setSettings] = useState<NotificationSettings | null>(null);
   const mapRef = useRef<MapViewRef | null>(null);
+  // Performance: throttle heavy intersection computation
+  const lastRunRef = useRef<number>(0);
+  const MIN_RUN_INTERVAL = 2000; // ms
 
   useEffect(() => { (async () => {
     const [locationStatus, userSettings] = await Promise.all([
@@ -43,15 +47,33 @@ export default function MapScreen() {
 
   const run = useCallback(async (userLL: [number, number]) => {
     if (!mapRef.current || !ready) return;
+    // Throttle to avoid running expensive geometry ops too often
+    const now = Date.now();
+    if (now - lastRunRef.current < MIN_RUN_INTERVAL) return;
     const screen = await mapRef.current.getPointInView?.(userLL); if (!screen) return;
-    const pad = 360, rect:[number,number,number,number] = [screen[0]-pad,screen[1]-pad,screen[0]+pad,screen[1]+pad];
+  // Keep the query region moderate to limit number of features processed
+  const pad = 240;
+  const rect:[number,number,number,number] = [screen[0]-pad,screen[1]-pad,screen[0]+pad,screen[1]+pad];
     const fc = await mapRef.current.queryRenderedFeaturesInRect(rect, undefined, []);
     const classes = ['motorway','trunk','primary','secondary','tertiary','street','path','pedestrian','residential','minor'];
     const roads = (fc.features as any[]).filter(f => classes.includes(f?.properties?.class));
-    const lines: Feature<LineString>[] = roads.flatMap((f:any)=>
+    // Convert to Turf lineStrings
+    let lines: Feature<LineString>[] = roads.flatMap((f:any)=>
       f.geometry.type==='LineString' ? [ls(f.geometry.coordinates)] :
       (f.geometry.coordinates as number[][][]).map(c=>ls(c))
     );
+
+    // If we have many lines, simplify geometries and sample to top N by length
+    const MAX_LINES = 250;
+    if (lines.length > MAX_LINES) {
+      // compute length for each line and keep the longest ones
+      const linesWithLen = lines.map(l => ({
+        len: turf.length(l, { units: 'kilometers' }),
+        line: l,
+      }));
+      linesWithLen.sort((a,b) => b.len - a.len);
+      lines = linesWithLen.slice(0, MAX_LINES).map(x => x.line).map(l => turf.simplify(l, { tolerance: 0.0005, highQuality: false }));
+    }
 
     // intersections
     // Get crosswalk and traffic signal information
@@ -60,12 +82,16 @@ export default function MapScreen() {
     const signals = (fc.features as any[])
       .filter(f => f.properties?.highway === 'traffic_signals' || f.properties?.traffic_signals === 'yes');
 
-    // Find intersections
-    const raw:P[]=[]; for(let i=0;i<lines.length;i++)for(let j=i+1;j<lines.length;j++)
-      turf.lineIntersect(lines[i],lines[j]).features.forEach(q=>raw.push({
-        lon:q.geometry.coordinates[0],
-        lat:q.geometry.coordinates[1]
-      }));
+    // Find intersections (pairwise) — acceptable after sampling / simplify
+    const raw:P[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      for (let j = i + 1; j < lines.length; j++) {
+        const inter = turf.lineIntersect(lines[i], lines[j]);
+        if (inter && inter.features && inter.features.length) {
+          inter.features.forEach(q => raw.push({ lon: q.geometry.coordinates[0], lat: q.geometry.coordinates[1] }));
+        }
+      }
+    }
 
     // Dedupe and process intersections
     const dedup:P[]=[]; raw.forEach(a=>{
@@ -94,6 +120,14 @@ export default function MapScreen() {
     });
 
     setInts(three);
+    try {
+      // Cache processed intersections (GeoJSON Point geometries) for background tasks
+      const points = three.map(p => ({ type: 'Point' as const, coordinates: [p.lon, p.lat] }));
+      await saveIntersections(points);
+    } catch (e) {
+      console.error('Failed to cache intersections:', e);
+    }
+  lastRunRef.current = Date.now();
     // Check for nearby crosswalks and notify if necessary
     if (userLL && settings) {
       const newLastNotificationTime = await checkProximityAndNotify(
