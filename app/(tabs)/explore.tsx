@@ -11,8 +11,8 @@ import { Collapsible } from '@/components/ui/collapsible';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Fonts } from '@/constants/theme';
 
-export default function TabTwoScreen() {
-  const { theme } = useTheme(); // ✅ moved inside the component
+export default function ExploreScreen() {
+  const { theme } = useTheme();
   const isDark = theme === 'dark';
 
   return (
