@@ -4,7 +4,20 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
 import { Platform } from 'react-native';
-import 'react-native-reanimated';
+// Only require reanimated if available; importing it unconditionally can
+// throw when the native module isn't linked (Expo Go). Use a try/catch
+// so the app can still run in environments without the native part.
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require('react-native-reanimated');
+} catch (e) {
+  // Not fatal — fall back to non-reanimated behavior and warn.
+  // The parallax component and other pieces use fallbacks when reanimated
+  // isn't present, so the app remains functional in Expo Go.
+  // Log at debug level to help troubleshooting.
+  // eslint-disable-next-line no-console
+  console.warn('react-native-reanimated not available (native part missing):', e?.message || e);
+}
 
 // ✅ Register background location task
 import '../tasks/backgroundLocation';
