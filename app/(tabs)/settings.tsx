@@ -65,6 +65,8 @@ export default function SettingsScreen() {
     vibrationStrength: 2,
   });
 
+  const [user, setUser] = useState<{ name?: string; email?: string; provider?: string } | null>(null);
+
   useEffect(() => {
     const loadSettings = async () => {
       try {
@@ -77,6 +79,11 @@ export default function SettingsScreen() {
             importance: Notifications.AndroidImportance.HIGH,
             sound: 'default',
           });
+        }
+        // Load persisted user from storage
+        const persistedUser = await loadPersistedUser();
+        if (persistedUser) {
+          setUser(persistedUser);
         }
       } catch (error) {
         console.error('Failed to load settings:', error);
@@ -171,9 +178,7 @@ export default function SettingsScreen() {
     Speech.speak('This is a test voice prompt from your Settings screen.');
   };
 
-  // Authentication handlers (Google, Microsoft, Apple)
-  const [user, setUser] = useState<{ name?: string; email?: string; provider?: string } | null>(null);
-
+  // Authentication handlers
   const signInWithGoogle = async () => {
     try {
       const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
@@ -191,7 +196,6 @@ export default function SettingsScreen() {
         const u = { name: profile.name, email: profile.email, provider: 'google' };
         setUser(u);
         await persistUser(u);
-        // Save tokens if available
         if ((result as any).params) await saveTokens({ provider: 'google', tokens: (result as any).params });
       } else {
         Alert.alert('Google Sign-In cancelled');
@@ -253,9 +257,81 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleSignOut = async () => {
+    Alert.alert('Sign Out', 'Are you sure?', [
+      { text: 'Cancel', onPress: () => {} },
+      {
+        text: 'Sign Out',
+        onPress: async () => {
+          await clearPersistedUser();
+          setUser(null);
+          Alert.alert('Signed Out', 'You have been signed out.');
+        },
+      },
+    ]);
+  };
+
+  const getInitials = (name?: string) => {
+    if (!name) return '?';
+    const parts = name.split(' ');
+    return parts.map(p => p[0]).join('').toUpperCase().slice(0, 2);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView}>
+        {/* Login/Account Section */}
+        <ThemedView
+          style={styles.accountSection}
+          glass={Platform.OS === 'ios'}
+          glassVariant="tint"
+          elevated={Platform.OS === 'android' ? 'medium' : undefined}>
+          {user ? (
+            <ThemedView style={styles.userCard}>
+              <ThemedView style={styles.avatarContainer}>
+                <ThemedView style={styles.avatar}>
+                  <ThemedText style={styles.avatarText}>{getInitials(user.name)}</ThemedText>
+                </ThemedView>
+                <ThemedView style={styles.userInfo}>
+                  <ThemedText variant="title" style={styles.userName}>
+                    {user.name || 'User'}
+                  </ThemedText>
+                  <ThemedText style={styles.userEmail}>{user.email}</ThemedText>
+                  <ThemedText style={styles.userProvider}>
+                    Signed in with {user.provider?.charAt(0).toUpperCase()}{user.provider?.slice(1)}
+                  </ThemedText>
+                </ThemedView>
+              </ThemedView>
+              <Button title="Sign Out" onPress={handleSignOut} />
+            </ThemedView>
+          ) : (
+            <ThemedView style={styles.loginPrompt}>
+              <ThemedText variant="title" style={styles.loginTitle}>Sign In to Save Settings</ThemedText>
+              <ThemedText style={styles.loginDescription}>
+                Sign in to sync your settings across devices.
+              </ThemedText>
+              <ThemedView style={styles.authButtonsContainer}>
+                {AuthSession && (
+                  <ThemedView style={styles.authButton}>
+                    <Button title="Sign in with Google" onPress={signInWithGoogle} />
+                  </ThemedView>
+                )}
+                {AuthSession && (
+                  <ThemedView style={styles.authButton}>
+                    <Button title="Sign in with Microsoft" onPress={signInWithMicrosoft} />
+                  </ThemedView>
+                )}
+                {AppleAuthentication && Platform.OS === 'ios' && (
+                  <ThemedView style={styles.authButton}>
+                    <Button title="Sign in with Apple" onPress={signInWithApple} />
+                  </ThemedView>
+                )}
+              </ThemedView>
+            </ThemedView>
+          )}
+        </ThemedView>
+
+        {/* Notification Settings Section */}
         <ThemedView 
           style={styles.section} 
           glass={Platform.OS === 'ios'}
@@ -353,6 +429,71 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1
+  },
+  accountSection: {
+    marginTop: 20,
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: Platform.OS === 'android' ? 16 : 12,
+  },
+  userCard: {
+    gap: 12,
+  },
+  avatarContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  userInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  userEmail: {
+    fontSize: 12,
+    opacity: 0.7,
+  },
+  userProvider: {
+    fontSize: 11,
+    opacity: 0.6,
+    fontStyle: 'italic',
+  },
+  loginPrompt: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  loginTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  loginDescription: {
+    fontSize: 14,
+    opacity: 0.7,
+    textAlign: 'center',
+  },
+  authButtonsContainer: {
+    width: '100%',
+    gap: 8,
+  },
+  authButton: {
+    marginVertical: 4,
   },
   section: {
     marginTop: 20,
