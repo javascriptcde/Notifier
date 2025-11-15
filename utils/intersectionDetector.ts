@@ -1,6 +1,11 @@
 import * as turf from '@turf/turf';
 import type { Feature, LineString, Point } from 'geojson';
 
+/**
+ * Detect intersections and only return points where at least `minRoads`
+ * distinct source features meet. This avoids counting multiple segments
+ * of the same source as separate roads.
+ */
 export function detectIntersections(features: Feature[]): Point[] {
   const lines = features
     .filter(f => f.geometry.type === 'LineString')

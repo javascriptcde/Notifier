@@ -3,7 +3,7 @@ import { saveIntersections } from '@/utils/intersectionCache';
 import { checkProximityAndNotify, setupNotifications } from '@/utils/notifications';
 import { getSettings, type NotificationSettings } from '@/utils/settings';
 import {
-  Camera, MapView, PointAnnotation, type MapViewRef,
+    Camera, MapView, PointAnnotation, type MapViewRef,
 } from '@maplibre/maplibre-react-native';
 import { lineString as ls, point as pt } from '@turf/helpers';
 import * as turf from '@turf/turf';
@@ -50,15 +50,18 @@ export default function MapScreen() {
     // Throttle to avoid running expensive geometry ops too often
     const now = Date.now();
     if (now - lastRunRef.current < MIN_RUN_INTERVAL) return;
-    const screen = await mapRef.current.getPointInView?.(userLL); if (!screen) return;
-  // Keep the query region moderate to limit number of features processed
-  const pad = 240;
-  const rect:[number,number,number,number] = [screen[0]-pad,screen[1]-pad,screen[0]+pad,screen[1]+pad];
+    const screen = await mapRef.current.getPointInView?.(userLL);
+    if (!screen) return;
+
+    // Keep the query region moderate to limit number of features processed
+    const pad = 240;
+    const rect: [number, number, number, number] = [screen[0] - pad, screen[1] - pad, screen[0] + pad, screen[1] + pad];
     const fc = await mapRef.current.queryRenderedFeaturesInRect(rect, undefined, []);
-    const classes = ['motorway','trunk','primary','secondary','tertiary','street','path','pedestrian','residential','minor'];
+    const classes = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'street', 'path', 'pedestrian', 'residential', 'minor'];
     const roads = (fc.features as any[]).filter(f => classes.includes(f?.properties?.class));
+
     // Convert to Turf lineStrings
-    let lines: Feature<LineString>[] = roads.flatMap((f:any)=>
+  let lines: Feature<LineString>[] = roads.flatMap((f:any)=>
       f.geometry.type==='LineString' ? [ls(f.geometry.coordinates)] :
       (f.geometry.coordinates as number[][][]).map(c=>ls(c))
     );
@@ -75,7 +78,6 @@ export default function MapScreen() {
       lines = linesWithLen.slice(0, MAX_LINES).map(x => x.line).map(l => turf.simplify(l, { tolerance: 0.0005, highQuality: false }));
     }
 
-    // intersections
     // Get crosswalk and traffic signal information
     const crosswalks = (fc.features as any[])
       .filter(f => f.properties?.crossing === 'marked' || f.properties?.highway === 'crossing');
@@ -94,17 +96,12 @@ export default function MapScreen() {
     }
 
     // Dedupe and process intersections
-    const dedup:P[]=[]; raw.forEach(a=>{
-      if(!dedup.some(b=>turf.distance(pt([a.lon,a.lat]),pt([b.lon,b.lat]),{units:'meters'})<5)) {
-        // Check if intersection is near a crosswalk or signal
-        const point = pt([a.lon,a.lat]);
-        const hasCrosswalk = crosswalks.some(c => 
-          turf.distance(point, pt(c.geometry.coordinates), {units:'meters'}) < 10
-        );
-        const hasSignals = signals.some(s => 
-          turf.distance(point, pt(s.geometry.coordinates), {units:'meters'}) < 10
-        );
-        
+    const dedup: P[] = [];
+    raw.forEach(a => {
+      if (!dedup.some(b => turf.distance(pt([a.lon, a.lat]), pt([b.lon, b.lat]), { units: 'meters' }) < 5)) {
+        const point = pt([a.lon, a.lat]);
+        const hasCrosswalk = crosswalks.some(c => turf.distance(point, pt(c.geometry.coordinates), { units: 'meters' }) < 10);
+        const hasSignals = signals.some(s => turf.distance(point, pt(s.geometry.coordinates), { units: 'meters' }) < 10);
         dedup.push({
           ...a,
           crosswalk: hasCrosswalk,
@@ -113,33 +110,62 @@ export default function MapScreen() {
         });
       }
     });
-    
-    const three=dedup.filter(p=>{
-      let n=0; for(const l of lines){ if(turf.pointToLineDistance(pt([p.lon,p.lat]),l,{units:'meters'})<1) n++; if(n>=3) return true; }
+
+    // Decide whether each deduped point actually branches in >= 3 directions.
+    // Strategy: for each line near the point, compute the bearing from the
+    // intersection point to the nearest point on the line, bucket bearings
+    // into ANGLE_BIN_DEGREES and count distinct bins. Require >= 3 bins.
+    const POINT_TO_LINE_TOLERANCE_METERS = 3; // how close a line must be to count
+    const ANGLE_BIN_DEGREES = 60; // bucket size for direction uniqueness
+
+    const branched = dedup.filter(p => {
+      const point = pt([p.lon, p.lat]);
+      const bins = new Set<number>();
+      for (const l of lines) {
+        // only consider lines that are near the intersection
+        if (turf.pointToLineDistance(point, l, { units: 'meters' }) > POINT_TO_LINE_TOLERANCE_METERS) continue;
+
+        // nearest point on the line to the intersection
+        let nearest: any;
+        try {
+          // turf.nearestPointOnLine returns a point feature
+          nearest = turf.nearestPointOnLine(l, point);
+        } catch (e) {
+          // Fallback: skip if helper not available
+          continue;
+        }
+        const bearing = turf.bearing(point, nearest) ?? 0;
+        const norm = ((bearing % 360) + 360) % 360;
+        const bin = Math.floor(norm / ANGLE_BIN_DEGREES);
+        bins.add(bin);
+        if (bins.size >= 3) return true;
+      }
       return false;
     });
 
-    setInts(three);
+    setInts(branched);
     try {
       // Cache processed intersections (GeoJSON Point geometries) for background tasks
-      const points = three.map(p => ({ type: 'Point' as const, coordinates: [p.lon, p.lat] }));
+      const points = branched.map(p => ({ type: 'Point' as const, coordinates: [p.lon, p.lat] }));
       await saveIntersections(points);
     } catch (e) {
       console.error('Failed to cache intersections:', e);
     }
-  lastRunRef.current = Date.now();
+
+    lastRunRef.current = Date.now();
+
     // Check for nearby crosswalks and notify if necessary
     if (userLL && settings) {
       const newLastNotificationTime = await checkProximityAndNotify(
         userLL,
-        three,
+        dedup,
         lastNotificationTime,
         settings
       );
       setLastNotificationTime(newLastNotificationTime);
     }
-    console.log(`roads=${roads.length} 3+way=${three.length}`);
-  },[ready, lastNotificationTime]);
+  console.log(`roads=${roads.length} detected=${dedup.length}`);
+  }, [ready, lastNotificationTime]);
 
   useEffect(()=>{ if(!ready) return; let sub:Location.LocationSubscription|null=null;
     (async()=>{ sub=await Location.watchPositionAsync({accuracy:Location.Accuracy.High,distanceInterval:12},pos=>{

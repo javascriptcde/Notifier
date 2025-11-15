@@ -1,4 +1,5 @@
 import type { PropsWithChildren, ReactElement } from 'react';
+import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedView } from '@/components/themed-view';
@@ -26,6 +27,63 @@ export default function ParallaxScrollView({
   const backgroundColor = useThemeColor({}, 'background');
   const colorScheme = useColorScheme() ?? 'light';
 
+  // Try to load reanimated at runtime (works in dev builds where native
+  // modules are available). Use useMemo so require is only attempted once
+  // per component mount and to keep synchronous behavior predictable.
+  const reanimated = useMemo(() => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const r = require('react-native-reanimated');
+      return r;
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
+  if (reanimated && reanimated.useAnimatedStyle) {
+    // Use the native reanimated implementation when available
+    const Animated: any = reanimated.default || reanimated;
+    const { interpolate, useAnimatedRef, useAnimatedStyle, useScrollOffset } = reanimated;
+  const scrollRef = useAnimatedRef();
+    const scrollOffset = useScrollOffset(scrollRef);
+    const headerAnimatedStyle = useAnimatedStyle(() => {
+      return {
+        transform: [
+          {
+            translateY: interpolate(
+              scrollOffset.value,
+              [-HEADER_HEIGHT, 0, HEADER_HEIGHT],
+              [-HEADER_HEIGHT / 2, 0, HEADER_HEIGHT * 0.75]
+            ),
+          },
+          {
+            scale: interpolate(scrollOffset.value, [-HEADER_HEIGHT, 0, HEADER_HEIGHT], [2, 1, 1]),
+          },
+        ],
+      };
+    });
+
+    return (
+      <Animated.ScrollView
+        ref={scrollRef}
+        style={{ backgroundColor, flex: 1 }}
+        scrollEventThrottle={16}>
+        <Animated.View
+          style={[
+            styles.header,
+            { backgroundColor: headerBackgroundColor[colorScheme] },
+            headerAnimatedStyle,
+          ]}>
+          {headerImage}
+        </Animated.View>
+        <ThemedView style={styles.content} elevated="medium">
+          {children}
+        </ThemedView>
+      </Animated.ScrollView>
+    );
+  }
+
+  // Fallback for environments without the native reanimated module
   return (
     <ScrollView style={{ backgroundColor, flex: 1 }} scrollEventThrottle={16}>
       <View style={[styles.header, { backgroundColor: headerBackgroundColor[colorScheme] }]}>
