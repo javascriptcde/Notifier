@@ -1,11 +1,20 @@
 import type { PropsWithChildren, ReactElement } from 'react';
-import { StyleSheet } from 'react-native';
-import Animated, {
-    interpolate,
-    useAnimatedRef,
-    useAnimatedStyle,
-    useScrollOffset,
-} from 'react-native-reanimated';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
+
+// react-native-reanimated is optional at import-time (dev clients or web
+// environments may not have the native part). Try to require it and fall
+// back to a plain ScrollView if it's not available to avoid crashing on
+// module evaluation.
+let Animated: any = null;
+let reanimatedExports: any = null;
+try {
+  // Use require so bundlers won't fail if the native module is missing.
+  reanimatedExports = require('react-native-reanimated');
+  Animated = reanimatedExports.default || reanimatedExports;
+} catch (e) {
+  // Not available — we'll render a safe fallback below.
+  Animated = null;
+}
 
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -25,7 +34,25 @@ export default function ParallaxScrollView({
 }: Props) {
   const backgroundColor = useThemeColor({}, 'background');
   const colorScheme = useColorScheme() ?? 'light';
-  const scrollRef = useAnimatedRef<Animated.ScrollView>();
+
+  // If reanimated isn't available (for example on web or when native
+  // modules aren't present in a dev client), render a plain ScrollView
+  // with the header and content — avoids crashing during import.
+  if (!Animated || Platform.OS !== 'ios') {
+    return (
+      <ScrollView style={{ backgroundColor, flex: 1 }} scrollEventThrottle={16}>
+        <View style={[styles.header, { backgroundColor: headerBackgroundColor[colorScheme] }]}>
+          {headerImage}
+        </View>
+        <ThemedView style={styles.content} elevated="medium">
+          {children}
+        </ThemedView>
+      </ScrollView>
+    );
+  }
+
+  const { interpolate, useAnimatedRef, useAnimatedStyle, useScrollOffset } = reanimatedExports;
+  const scrollRef = useAnimatedRef<InstanceType<typeof Animated.ScrollView>>();
   const scrollOffset = useScrollOffset(scrollRef);
   const headerAnimatedStyle = useAnimatedStyle(() => {
     return {

@@ -1,5 +1,15 @@
-import { GlassView } from 'expo-glass-effect';
 import { Platform, StyleSheet, View, type ViewProps } from 'react-native';
+
+// expo-glass-effect may not be available in some environments. Try to
+// require GlassView at runtime and fall back to a regular View when it's
+// not present to avoid "cannot read property 'default' of undefined".
+let GlassView: any = null;
+try {
+  const mod = require('expo-glass-effect');
+  GlassView = mod && (mod.GlassView || mod.default || mod);
+} catch (e) {
+  GlassView = null;
+}
 
 import { DesignTokens } from '@/constants/theme';
 import { useThemeColor } from '@/hooks/use-theme-color';
@@ -19,7 +29,7 @@ export function ThemedView({ style, lightColor, darkColor, glass, elevated, ...o
   const backgroundColor = useThemeColor({ light: lightColor, dark: darkColor }, 'background');
 
   // iOS: use GlassView for Liquid Glass surfaces
-  if (glass && Platform.OS === 'ios') {
+  if (glass && Platform.OS === 'ios' && GlassView) {
     const iosTokens = DesignTokens.ios;
     const variant = otherProps && (otherProps as any).glassVariant ? (otherProps as any).glassVariant : 'regular';
 
