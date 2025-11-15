@@ -22,12 +22,13 @@ function TabScreens() {
     <SafeAreaView edges={["bottom"]} style={styles.safeArea}>
       <ThemedView elevated="medium" style={styles.tabBar}>
         <NativeTabs>
-          <NativeTabs.Trigger name="index">
+
+          <NativeTabs.Trigger name="explore">
             <Icon src={<VectorIcon family={Ionicons} name="home" />} />
             <Label>Home</Label>
           </NativeTabs.Trigger>
 
-          <NativeTabs.Trigger name="explore">
+          <NativeTabs.Trigger name="index">
             <Icon src={<VectorIcon family={Ionicons} name="paper-plane" />} />
             <Label>Map</Label>
           </NativeTabs.Trigger>

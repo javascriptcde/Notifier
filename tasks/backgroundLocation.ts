@@ -1,10 +1,11 @@
 import { getCachedIntersections } from '@/utils/intersectionCache';
-import { getVoicePromptEnabled } from '@/utils/settings';
+import { getSettings } from '@/utils/settings';
 import * as turf from '@turf/turf';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as Speech from 'expo-speech';
 import * as TaskManager from 'expo-task-manager';
+import { Vibration } from 'react-native';
 
 export const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -20,21 +21,28 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
 
   // ✅ Check proximity to intersections
   const intersections = await getCachedIntersections();
+  const settings = await getSettings();
+  const threshold = settings?.notifyDistance ?? 20;
 
   for (const pt of intersections) {
     const dist = turf.distance(userPoint, turf.point(pt.coordinates), { units: 'meters' });
-    if (dist < 20) {
+    if (dist <= threshold && settings?.enabled) {
       await Notifications.scheduleNotificationAsync({
         content: {
           title: '🚦 Approaching Intersection',
           body: 'Watch for cross traffic.',
-          sound: true,
+          sound: settings.soundEnabled ? true : false,
         },
         trigger: null,
       });
 
-      const voiceEnabled = await getVoicePromptEnabled();
-      if (voiceEnabled) {
+      if (settings.vibrationEnabled) {
+        // Simple mapping: 1 -> short, 2 -> medium, 3 -> long
+        const pattern = settings.vibrationStrength === 3 ? [0, 300] : settings.vibrationStrength === 2 ? [0, 200] : [0, 100];
+        Vibration.vibrate(pattern);
+      }
+
+      if (settings.voicePrompts) {
         Speech.speak('Approaching an intersection. Please be alert.');
       }
 

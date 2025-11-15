@@ -15,28 +15,20 @@ try {
 
   // Per Reanimated troubleshooting, try to call runtime initialization helpers
   // when available so the native part is properly wired up in dev clients.
-  try {
-    if (R) {
-      if (typeof R.setUpLayoutAnimations === 'function') {
-        R.setUpLayoutAnimations();
-      }
-      if (typeof R.enableLayoutAnimations === 'function') {
-        // enable layout animations (true) when supported
-        R.enableLayoutAnimations(true);
-      }
+  if (R && R.enableLayoutAnimations) {
+    try {
+      R.enableLayoutAnimations?.(true);
+    } catch (initErr) {
+      // Non-fatal initialization error
+      console.debug('Reanimated init error:', (initErr as any)?.message ?? String(initErr));
     }
-  } catch (initErr) {
-    // Non-fatal — continue and log below
-    // eslint-disable-next-line no-console
-    console.debug('Reanimated initialization helper threw:', (initErr as any)?.message ?? String(initErr));
   }
 } catch (e) {
   // Not fatal — fall back to non-reanimated behavior and warn.
   // The parallax component and other pieces use fallbacks when reanimated
   // isn't present, so the app remains functional in Expo Go.
   // Log at debug level to help troubleshooting.
-  // eslint-disable-next-line no-console
-  console.warn('react-native-reanimated not available (native part missing):', (e as any)?.message ?? String(e));
+  console.debug('react-native-reanimated not fully available:', (e as any)?.message ?? String(e));
 }
 
 // ✅ Register background location task

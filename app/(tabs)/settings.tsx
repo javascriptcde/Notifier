@@ -6,6 +6,28 @@ import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as Speech from 'expo-speech';
 import * as TaskManager from 'expo-task-manager';
+// Import OAuth libraries at runtime so types don't cause build failures when
+// packages aren't installed in all environments. We attempt a dynamic require
+// and fall back gracefully if the package is missing (developer will need to
+// install and configure client IDs for real authentication flows).
+let AuthSession: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  AuthSession = require('expo-auth-session');
+} catch (e) {
+  // Not fatal: developer may not have installed oauth packages locally
+  // eslint-disable-next-line no-console
+  console.debug('expo-auth-session not available');
+}
+
+let AppleAuthentication: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  AppleAuthentication = require('expo-apple-authentication');
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.debug('expo-apple-authentication not available');
+}
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -17,6 +39,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getSettings, updateSettings, type NotificationSettings } from '../../utils/settings';
+import { saveUser as persistUser, getUser as loadPersistedUser, clearUser as clearPersistedUser, saveTokens } from '@/utils/auth';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -39,6 +62,7 @@ export default function SettingsScreen() {
     vibrationEnabled: true,
     soundEnabled: true,
     voicePrompts: false,
+    vibrationStrength: 2,
   });
 
   useEffect(() => {
@@ -83,8 +107,37 @@ export default function SettingsScreen() {
           );
           return;
         }
+        // Start background location updates so the background task can run
+        try {
+          const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+          if (!hasStarted) {
+            await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+              accuracy: Location.Accuracy.Balanced,
+              distanceInterval: 10,
+              timeInterval: 10000,
+              // Android requires a foreground service notification for background location
+              foregroundService: {
+                notificationTitle: 'Notifier: Locating',
+                notificationBody: 'Monitoring nearby intersections',
+                notificationColor: '#FF0000',
+              },
+              pausesUpdatesAutomatically: false,
+            });
+          }
+        } catch (startErr) {
+          console.error('Failed to start background location updates:', startErr);
+          Alert.alert('Error', 'Failed to start background location updates.');
+        }
       }
-
+      if (key === 'enabled' && !value) {
+        // Stop background location updates when disabling
+        try {
+          const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+          if (hasStarted) await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+        } catch (stopErr) {
+          console.error('Failed to stop background location updates:', stopErr);
+        }
+      }
       const newSettings = await updateSettings({ [key]: value });
       setSettings(newSettings);
 
@@ -116,6 +169,88 @@ export default function SettingsScreen() {
       return;
     }
     Speech.speak('This is a test voice prompt from your Settings screen.');
+  };
+
+  // Authentication handlers (Google, Microsoft, Apple)
+  const [user, setUser] = useState<{ name?: string; email?: string; provider?: string } | null>(null);
+
+  const signInWithGoogle = async () => {
+    try {
+      const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
+      const clientId = process.env.GOOGLE_CLIENT_ID || '<GOOGLE_CLIENT_ID_HERE>';
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
+        redirectUri
+      )}&response_type=token&scope=profile%20email`;
+      const result = await AuthSession.startAsync({ authUrl });
+      if (result.type === 'success' && (result as any).params?.access_token) {
+        const token = (result as any).params.access_token;
+        const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const profile = await resp.json();
+        const u = { name: profile.name, email: profile.email, provider: 'google' };
+        setUser(u);
+        await persistUser(u);
+        // Save tokens if available
+        if ((result as any).params) await saveTokens({ provider: 'google', tokens: (result as any).params });
+      } else {
+        Alert.alert('Google Sign-In cancelled');
+      }
+    } catch (e) {
+      console.error('Google sign-in failed:', e);
+      Alert.alert('Error', 'Google sign-in failed. Check console for details.');
+    }
+  };
+
+  const signInWithMicrosoft = async () => {
+    try {
+      const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
+      const clientId = process.env.MICROSOFT_CLIENT_ID || '<MICROSOFT_CLIENT_ID_HERE>';
+      const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(
+        redirectUri
+      )}&scope=openid%20profile%20email`;
+      const result = await AuthSession.startAsync({ authUrl });
+      if (result.type === 'success' && (result as any).params?.access_token) {
+        const token = (result as any).params.access_token;
+        const resp = await fetch('https://graph.microsoft.com/v1.0/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const profile = await resp.json();
+        const u = { name: profile.displayName, email: profile.mail || profile.userPrincipalName, provider: 'microsoft' };
+        setUser(u);
+        await persistUser(u);
+        if ((result as any).params) await saveTokens({ provider: 'microsoft', tokens: (result as any).params });
+      } else {
+        Alert.alert('Microsoft Sign-In cancelled');
+      }
+    } catch (e) {
+      console.error('Microsoft sign-in failed:', e);
+      Alert.alert('Error', 'Microsoft sign-in failed. Check console for details.');
+    }
+  };
+
+  const signInWithApple = async () => {
+    try {
+      const available = await AppleAuthentication.isAvailableAsync();
+      if (!available) {
+        Alert.alert('Apple Sign-in not available on this device');
+        return;
+      }
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      const name = credential.fullName ? `${credential.fullName.givenName ?? ''} ${credential.fullName.familyName ?? ''}`.trim() : undefined;
+      const u = { name, email: credential.email, provider: 'apple' };
+      setUser(u);
+      await persistUser(u);
+    } catch (e: any) {
+      if (e.code === 'ERR_CANCELED') return;
+      console.error('Apple sign-in failed:', e);
+      Alert.alert('Error', 'Apple sign-in failed. Check console for details.');
+    }
   };
 
   return (
@@ -159,6 +294,18 @@ export default function SettingsScreen() {
             <Switch
               value={settings.vibrationEnabled}
               onValueChange={(value) => handleSettingChange('vibrationEnabled', value)}
+            />
+          </ThemedView>
+
+          <ThemedView style={styles.settingColumn}>
+            <ThemedText style={styles.label} variant="body">Vibration Strength</ThemedText>
+            <Slider
+              style={{ width: 200 }}
+              minimumValue={1}
+              maximumValue={3}
+              step={1}
+              value={settings.vibrationStrength ?? 2}
+              onValueChange={(value) => handleSettingChange('vibrationStrength', value)}
             />
           </ThemedView>
 
@@ -218,6 +365,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginVertical: 12
+  },
+  settingColumn: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginVertical: 12,
   },
   label: {
     flex: 1,

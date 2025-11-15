@@ -1,6 +1,6 @@
 import type { PropsWithChildren, ReactElement } from 'react';
 import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -30,60 +30,75 @@ export default function ParallaxScrollView({
   // Try to load reanimated at runtime (works in dev builds where native
   // modules are available). Use useMemo so require is only attempted once
   // per component mount and to keep synchronous behavior predictable.
+  // Skip entirely on Android to avoid native module crashes.
   const reanimated = useMemo(() => {
+    if (Platform.OS === 'android') {
+      // Always use fallback on Android to avoid Reanimated native crashes
+      console.debug('ParallaxScrollView: Using fallback on Android');
+      return null;
+    }
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const r = require('react-native-reanimated');
-      return r;
+      if (r && r.useAnimatedStyle) {
+        console.debug('ParallaxScrollView: Reanimated available on iOS');
+        return r;
+      }
+      return null;
     } catch (e) {
+      console.debug('ParallaxScrollView: Reanimated not available:', (e as any)?.message);
       return null;
     }
   }, []);
 
-  if (reanimated && reanimated.useAnimatedStyle) {
-    // Use the native reanimated implementation when available
-    const Animated: any = reanimated.default || reanimated;
-    const { interpolate, useAnimatedRef, useAnimatedStyle, useScrollOffset } = reanimated;
-  const scrollRef = useAnimatedRef();
-    const scrollOffset = useScrollOffset(scrollRef);
-    const headerAnimatedStyle = useAnimatedStyle(() => {
-      return {
-        transform: [
-          {
-            translateY: interpolate(
-              scrollOffset.value,
-              [-HEADER_HEIGHT, 0, HEADER_HEIGHT],
-              [-HEADER_HEIGHT / 2, 0, HEADER_HEIGHT * 0.75]
-            ),
-          },
-          {
-            scale: interpolate(scrollOffset.value, [-HEADER_HEIGHT, 0, HEADER_HEIGHT], [2, 1, 1]),
-          },
-        ],
-      };
-    });
+  try {
+    if (reanimated && reanimated.useAnimatedStyle) {
+      // Use the native reanimated implementation when available (iOS only)
+      const { interpolate, useAnimatedRef, useAnimatedStyle, useScrollOffset } = reanimated;
+      const scrollRef = useAnimatedRef();
+      const scrollOffset = useScrollOffset(scrollRef);
+      const headerAnimatedStyle = useAnimatedStyle(() => {
+        return {
+          transform: [
+            {
+              translateY: interpolate(
+                scrollOffset.value,
+                [-HEADER_HEIGHT, 0, HEADER_HEIGHT],
+                [-HEADER_HEIGHT / 2, 0, HEADER_HEIGHT * 0.75]
+              ),
+            },
+            {
+              scale: interpolate(scrollOffset.value, [-HEADER_HEIGHT, 0, HEADER_HEIGHT], [2, 1, 1]),
+            },
+          ],
+        };
+      });
 
-    return (
-      <Animated.ScrollView
-        ref={scrollRef}
-        style={{ backgroundColor, flex: 1 }}
-        scrollEventThrottle={16}>
-        <Animated.View
-          style={[
-            styles.header,
-            { backgroundColor: headerBackgroundColor[colorScheme] },
-            headerAnimatedStyle,
-          ]}>
-          {headerImage}
-        </Animated.View>
-        <ThemedView style={styles.content} elevated="medium">
-          {children}
-        </ThemedView>
-      </Animated.ScrollView>
-    );
+      const Animated: any = reanimated.default || reanimated;
+      return (
+        <Animated.ScrollView
+          ref={scrollRef}
+          style={{ backgroundColor, flex: 1 }}
+          scrollEventThrottle={16}>
+          <Animated.View
+            style={[
+              styles.header,
+              { backgroundColor: headerBackgroundColor[colorScheme] },
+              headerAnimatedStyle,
+            ]}>
+            {headerImage}
+          </Animated.View>
+          <ThemedView style={styles.content} elevated="medium">
+            {children}
+          </ThemedView>
+        </Animated.ScrollView>
+      );
+    }
+  } catch (renderError) {
+    console.error('ParallaxScrollView render error:', (renderError as any)?.message);
   }
 
-  // Fallback for environments without the native reanimated module
+  // Fallback for environments without the native reanimated module (Android + errors)
   return (
     <ScrollView style={{ backgroundColor, flex: 1 }} scrollEventThrottle={16}>
       <View style={[styles.header, { backgroundColor: headerBackgroundColor[colorScheme] }]}>

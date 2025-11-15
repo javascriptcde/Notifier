@@ -10,6 +10,7 @@ export interface NotificationSettings {
   vibrationEnabled: boolean;
   soundEnabled: boolean;
   voicePrompts: boolean;
+  vibrationStrength?: number;
 }
 
 const DEFAULT_SETTINGS: NotificationSettings = {
@@ -19,6 +20,7 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   vibrationEnabled: true,
   soundEnabled: true,
   voicePrompts: false,
+  vibrationStrength: 2,
 };
 
 export async function getSettings(): Promise<NotificationSettings> {
