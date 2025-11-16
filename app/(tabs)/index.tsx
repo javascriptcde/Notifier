@@ -34,56 +34,82 @@ export default function MapScreen() {
   const mapRef = useRef<MapViewRef | null>(null);
   const [mapStyle, setMapStyle] = useState(MAP_STYLE_STREETS);
   const [followUser, setFollowUser] = useState(false);
+  const followUserRef = useRef(followUser);
   const [cameraCenter, setCameraCenter] = useState<[number, number] | null>(null);
   const [cameraBearing, setCameraBearing] = useState<number | undefined>(0);
+  const [pitch, setPitch] = useState<number>(0);
   const [zoomLevel, setZoomLevel] = useState<number>(16);
-  // Smooth camera fly helper: tries native animation, falls back to manual interpolation
+  // Smooth camera fly helper: tries native animation, falls back to requestAnimationFrame-based interpolation
   const smoothFlyTo = async (
     targetCoord: [number, number],
     targetBearing?: number,
     targetZoom?: number,
+    targetPitch?: number,
     duration = 600
   ) => {
     // Try native setCamera with duration first
     try {
-      await mapRef.current?.setCamera?.({ centerCoordinate: targetCoord, bearing: targetBearing, zoomLevel: targetZoom, duration });
+      await mapRef.current?.setCamera?.({ centerCoordinate: targetCoord, bearing: targetBearing, zoomLevel: targetZoom, pitch: targetPitch, duration });
       // update local state
       setCameraCenter(targetCoord);
       if (typeof targetBearing === 'number') setCameraBearing(targetBearing);
       if (typeof targetZoom === 'number') setZoomLevel(targetZoom);
+      if (typeof targetPitch === 'number') setPitch(targetPitch);
       return;
     } catch (e) {
-      // ignore and fall back to state-driven interpolation
+      // fall back to rAF interpolation
     }
 
-    const steps = 30;
-    const interval = Math.max(12, Math.floor(duration / steps));
     const startCoord = cameraCenter ?? (loc ? [loc.longitude, loc.latitude] : targetCoord);
     const startBearing = cameraBearing ?? 0;
     const startZoom = zoomLevel;
+    const startPitch = pitch ?? 0;
 
-    for (let i = 1; i <= steps; i++) {
-      const t = i / steps;
-      const lon = startCoord[0] + (targetCoord[0] - startCoord[0]) * t;
-      const lat = startCoord[1] + (targetCoord[1] - startCoord[1]) * t;
-      const bear = typeof targetBearing === 'number' ? startBearing + (targetBearing - startBearing) * t : undefined;
-      const z = typeof targetZoom === 'number' ? startZoom + (targetZoom - startZoom) * t : undefined;
-      // update state so Camera prop animates (Camera's animationDuration will animate changes)
-      setCameraCenter([lon, lat]);
-      if (typeof bear === 'number') setCameraBearing(bear);
-      if (typeof z === 'number') setZoomLevel(z);
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise(res => setTimeout(res, interval));
-    }
+    const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2); // easeInOutCubic
 
-    // Finalize state
-    setCameraCenter(targetCoord);
-    if (typeof targetBearing === 'number') setCameraBearing(targetBearing);
-    if (typeof targetZoom === 'number') setZoomLevel(targetZoom);
+    return new Promise<void>(resolve => {
+      const start = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+
+      const step = (now?: number) => {
+        const current = now ?? (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+        const tRaw = Math.min(1, (current - start) / duration);
+        const t = ease(tRaw);
+
+        const lon = startCoord[0] + (targetCoord[0] - startCoord[0]) * t;
+        const lat = startCoord[1] + (targetCoord[1] - startCoord[1]) * t;
+        const bear = typeof targetBearing === 'number' ? startBearing + (targetBearing - startBearing) * t : undefined;
+        const z = typeof targetZoom === 'number' ? startZoom + (targetZoom - startZoom) * t : undefined;
+        const p = typeof targetPitch === 'number' ? startPitch + (targetPitch - startPitch) * t : undefined;
+
+        // Prefer native per-frame camera updates when available for smoothness
+          try {
+            mapRef.current?.setCamera?.({ centerCoordinate: [lon, lat], bearing: bear, zoomLevel: z, pitch: p, duration: 0 });
+          } catch (e) {
+            // Fallback to updating state which will let Camera animate
+            setCameraCenter([lon, lat]);
+            if (typeof bear === 'number') setCameraBearing(bear);
+            if (typeof z === 'number') setZoomLevel(z);
+            if (typeof p === 'number') setPitch(p);
+          }
+
+        if (tRaw < 1) {
+          requestAnimationFrame(step);
+        } else {
+          // finalize
+          setCameraCenter(targetCoord);
+          if (typeof targetBearing === 'number') setCameraBearing(targetBearing);
+          if (typeof targetZoom === 'number') setZoomLevel(targetZoom);
+          if (typeof targetPitch === 'number') setPitch(targetPitch);
+          resolve();
+        }
+      };
+
+      requestAnimationFrame(step);
+    });
   };
   // Performance: throttle heavy intersection computation
   const lastRunRef = useRef<number>(0);
-  const MIN_RUN_INTERVAL = 2000; // ms
+  const MIN_RUN_INTERVAL = 3000; // ms
 
   useEffect(() => { (async () => {
     console.log('MapScreen: Starting initialization');
@@ -124,6 +150,13 @@ export default function MapScreen() {
     const classes = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'street', 'path', 'pedestrian', 'residential', 'minor'];
     const roads = (fc.features as any[]).filter(f => classes.includes(f?.properties?.class));
 
+    // Safety guard: bail out early if the viewport has an enormous number of road features
+    if (roads.length > 600) {
+      console.warn(`MapScreen: too many road features (${roads.length}), skipping heavy intersection computation to avoid freezing UI`);
+      lastRunRef.current = Date.now();
+      return;
+    }
+
     // Convert to Turf lineStrings
     let lines: Feature<LineString>[] = roads.flatMap((f: any) =>
       f.geometry.type === 'LineString'
@@ -132,7 +165,7 @@ export default function MapScreen() {
     );
 
     // If we have many lines, simplify geometries and sample to top N by length
-    const MAX_LINES = 250;
+    const MAX_LINES = 120;
     if (lines.length > MAX_LINES) {
       const linesWithLen = lines.map(l => ({
         len: turf.length(l, { units: 'kilometers' }),
@@ -232,13 +265,57 @@ export default function MapScreen() {
   }, [ready, lastNotificationTime]);
 
   useEffect(()=>{ if(!ready) return; let sub:Location.LocationSubscription|null=null;
+    // keep ref in sync so callbacks see the latest value immediately
+    followUserRef.current = followUser;
     (async()=>{ sub=await Location.watchPositionAsync({accuracy:Location.Accuracy.High,distanceInterval:12},pos=>{
       setLoc(pos.coords);
       // if follow mode is active, update camera center to keep user centered
-      if (followUser) setCameraCenter([pos.coords.longitude, pos.coords.latitude]);
+      if (followUserRef.current) setCameraCenter([pos.coords.longitude, pos.coords.latitude]);
       run([pos.coords.longitude,pos.coords.latitude]); }); })();
     return()=>sub?.remove();
   },[ready,run,followUser]);
+
+  // keep followUserRef updated whenever followUser state changes
+  useEffect(() => { followUserRef.current = followUser; }, [followUser]);
+
+  // Keep zoomLevel in sync with native map state: poll camera zoom periodically when ready
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    const sync = async () => {
+      try {
+        const cam = await mapRef.current?.getCamera?.();
+        const nativeZoom = cam?.zoom ?? cam?.zoomLevel ?? cam?.zoomLevel;
+        if (!cancelled && typeof nativeZoom === 'number' && Math.abs(nativeZoom - zoomLevel) > 0.001) {
+          setZoomLevel(nativeZoom);
+        }
+      } catch (e) {
+        // ignore if API not available
+      }
+    };
+    const id = setInterval(sync, 800);
+    // run once immediately
+    void sync();
+    return () => { cancelled = true; clearInterval(id); };
+  }, [ready]);
+
+  // Immediate sync: called from map event handlers to update zoom/center/bearing instantly
+  const syncCameraInstant = async () => {
+    try {
+      const cam = await mapRef.current?.getCamera?.();
+      if (!cam) return;
+      const nativeZoom = cam.zoom ?? cam.zoomLevel ?? cam.zoomLevel;
+      if (typeof nativeZoom === 'number') setZoomLevel(nativeZoom);
+      if (cam.centerCoordinate && Array.isArray(cam.centerCoordinate) && cam.centerCoordinate.length >= 2) {
+        setCameraCenter([cam.centerCoordinate[0], cam.centerCoordinate[1]]);
+      }
+      if (typeof cam.bearing === 'number') setCameraBearing(cam.bearing);
+      // some map implementations expose pitch on the camera
+      if (typeof (cam as any).pitch === 'number') setPitch((cam as any).pitch);
+    } catch (e) {
+      // ignore
+    }
+  };
 
   if(!loc) return <ThemedView style={styles.loading}><ActivityIndicator size="large"/></ThemedView>;
 
@@ -256,11 +333,14 @@ export default function MapScreen() {
           console.log('Map finished loading');
           setReady(true);
         }}
+        onRegionDidChange={() => { void syncCameraInstant(); }}
+        onRegionIsChanging={() => { void syncCameraInstant(); }}
       >
         <Camera
           zoomLevel={zoomLevel}
           centerCoordinate={cameraCenter ?? [loc.longitude, loc.latitude]}
           bearing={cameraBearing}
+          pitch={pitch}
           animationDuration={300}
         />
         <PointAnnotation id="user" coordinate={[loc.longitude,loc.latitude]}><ThemedView style={styles.user}/></PointAnnotation>
@@ -299,10 +379,10 @@ export default function MapScreen() {
                     setTimeout(() => { if (!done) { done = true; resolve(undefined); } }, 1200);
                   });
                   const bearing = hdgSample ?? 0;
-                  await smoothFlyTo([pos.coords.longitude, pos.coords.latitude], bearing, undefined, 700);
+                  await smoothFlyTo([pos.coords.longitude, pos.coords.latitude], bearing, undefined, undefined, 700);
                 } catch (e) {
                   // if heading not available, just fly to location
-                  await smoothFlyTo([pos.coords.longitude, pos.coords.latitude], 0, undefined, 700);
+                  await smoothFlyTo([pos.coords.longitude, pos.coords.latitude], 0, undefined, undefined, 700);
                 }
               } catch (err) {
                 console.error('Align with location failed:', err);
@@ -322,12 +402,60 @@ export default function MapScreen() {
             <Ionicons name="layers" size={20} color="#fff" />
           </TouchableOpacity>
 
+          {/* 2D / 3D toggle */}
+          <TouchableOpacity
+            style={[styles.fab, { marginTop: 12 }]}
+            onPress={async () => {
+              try {
+                const cam = await mapRef.current?.getCamera?.();
+                const targetPitch = (typeof pitch === 'number' && pitch > 1) ? 0 : 60;
+                const targetCenter = (cam && cam.centerCoordinate && Array.isArray(cam.centerCoordinate))
+                  ? [cam.centerCoordinate[0], cam.centerCoordinate[1]] as [number, number]
+                  : (cameraCenter ?? null);
+                if (!targetCenter) return;
+                const wasFollowing = followUser;
+                if (wasFollowing) setFollowUser(false);
+                await smoothFlyTo(targetCenter, cameraBearing, undefined, targetPitch, 350);
+                if (wasFollowing) setTimeout(() => setFollowUser(true), 450);
+              } catch (e) {
+                console.error('Toggle 3D failed', e);
+              }
+            }}
+          >
+            <Ionicons name="cube" size={18} color="#fff" />
+          </TouchableOpacity>
+
           {/* Zoom controls placed under satellite button */}
           <TouchableOpacity
             style={[styles.fab, { marginTop: 18 }]}
             onPress={async () => {
-              const newZoom = Math.min(zoomLevel + 1, 20);
-              await smoothFlyTo(cameraCenter ?? [loc.longitude, loc.latitude], cameraBearing, newZoom, 300);
+              try {
+                const cam = await mapRef.current?.getCamera?.();
+                const nativeZoom = (cam?.zoom ?? cam?.zoomLevel ?? zoomLevel) as number;
+                const newZoom = Math.min(nativeZoom + 1, 20);
+                const targetCenter = (cam && cam.centerCoordinate && Array.isArray(cam.centerCoordinate))
+                  ? [cam.centerCoordinate[0], cam.centerCoordinate[1]] as [number, number]
+                  : (cameraCenter ?? null);
+                if (!targetCenter) return; // avoid jumping to user location
+                const wasFollowing = followUser;
+                if (wasFollowing) setFollowUser(false);
+                await smoothFlyTo(targetCenter, cameraBearing, newZoom, undefined, 300);
+                if (wasFollowing) {
+                  // restore follow after animation
+                  setTimeout(() => setFollowUser(true), 350);
+                }
+              } catch (e) {
+                const nativeZoom = zoomLevel;
+                const newZoom = Math.min(nativeZoom + 1, 20);
+                const targetCenter = cameraCenter ?? null;
+                if (!targetCenter) return;
+                const wasFollowing = followUser;
+                if (wasFollowing) setFollowUser(false);
+                await smoothFlyTo(targetCenter, cameraBearing, newZoom, undefined, 300);
+                if (wasFollowing) {
+                  setTimeout(() => setFollowUser(true), 350);
+                }
+              }
             }}
           >
             <Ionicons name="add" size={20} color="#fff" />
@@ -335,8 +463,32 @@ export default function MapScreen() {
           <TouchableOpacity
             style={[styles.fab, { marginTop: 12 }]}
             onPress={async () => {
-              const newZoom = Math.max(zoomLevel - 1, 1);
-              await smoothFlyTo(cameraCenter ?? [loc.longitude, loc.latitude], cameraBearing, newZoom, 300);
+              try {
+                const cam = await mapRef.current?.getCamera?.();
+                const nativeZoom = (cam?.zoom ?? cam?.zoomLevel ?? zoomLevel) as number;
+                const newZoom = Math.max(nativeZoom - 1, 1);
+                const targetCenter = (cam && cam.centerCoordinate && Array.isArray(cam.centerCoordinate))
+                  ? [cam.centerCoordinate[0], cam.centerCoordinate[1]] as [number, number]
+                  : (cameraCenter ?? null);
+                if (!targetCenter) return;
+                const wasFollowing = followUser;
+                if (wasFollowing) setFollowUser(false);
+                await smoothFlyTo(targetCenter, cameraBearing, newZoom, undefined, 300);
+                if (wasFollowing) {
+                  setTimeout(() => setFollowUser(true), 350);
+                }
+              } catch (e) {
+                const nativeZoom = zoomLevel;
+                const newZoom = Math.max(nativeZoom - 1, 1);
+                const targetCenter = cameraCenter ?? null;
+                if (!targetCenter) return;
+                const wasFollowing = followUser;
+                if (wasFollowing) setFollowUser(false);
+                await smoothFlyTo(targetCenter, cameraBearing, newZoom, undefined, 300);
+                if (wasFollowing) {
+                  setTimeout(() => setFollowUser(true), 350);
+                }
+              }
             }}
           >
             <Ionicons name="remove" size={20} color="#fff" />

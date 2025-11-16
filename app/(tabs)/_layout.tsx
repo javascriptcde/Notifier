@@ -58,7 +58,6 @@ function TabScreens() {
             <Label>Settings</Label>
           </NativeTabs.Trigger>
         </NativeTabs>
-          </NativeTabs>
         </ThemedView>
       </GlassView>
     </SafeAreaView>
