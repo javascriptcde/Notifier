@@ -10,9 +10,11 @@ import * as turf from '@turf/turf';
 import * as Location from 'expo-location';
 import type { Feature, LineString } from 'geojson';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, StyleSheet } from 'react-native';
+import { ActivityIndicator, Dimensions, StyleSheet, TouchableOpacity, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
-const MAP_STYLE = 'https://api.maptiler.com/maps/streets-v4/style.json?key=P6xL3GTk8oM1rxbEtoly';
+const MAP_STYLE_STREETS = 'https://api.maptiler.com/maps/streets-v4/style.json?key=P6xL3GTk8oM1rxbEtoly';
+const MAP_STYLE_SATELLITE = 'https://api.maptiler.com/maps/hybrid/style.json?key=P6xL3GTk8oM1rxbEtoly';
 
 type P = {
   lon: number;
@@ -30,6 +32,55 @@ export default function MapScreen() {
   const [lastNotificationTime, setLastNotificationTime] = useState(0);
   const [settings, setSettings] = useState<NotificationSettings | null>(null);
   const mapRef = useRef<MapViewRef | null>(null);
+  const [mapStyle, setMapStyle] = useState(MAP_STYLE_STREETS);
+  const [followUser, setFollowUser] = useState(false);
+  const [cameraCenter, setCameraCenter] = useState<[number, number] | null>(null);
+  const [cameraBearing, setCameraBearing] = useState<number | undefined>(0);
+  const [zoomLevel, setZoomLevel] = useState<number>(16);
+  // Smooth camera fly helper: tries native animation, falls back to manual interpolation
+  const smoothFlyTo = async (
+    targetCoord: [number, number],
+    targetBearing?: number,
+    targetZoom?: number,
+    duration = 600
+  ) => {
+    // Try native setCamera with duration first
+    try {
+      await mapRef.current?.setCamera?.({ centerCoordinate: targetCoord, bearing: targetBearing, zoomLevel: targetZoom, duration });
+      // update local state
+      setCameraCenter(targetCoord);
+      if (typeof targetBearing === 'number') setCameraBearing(targetBearing);
+      if (typeof targetZoom === 'number') setZoomLevel(targetZoom);
+      return;
+    } catch (e) {
+      // ignore and fall back to state-driven interpolation
+    }
+
+    const steps = 30;
+    const interval = Math.max(12, Math.floor(duration / steps));
+    const startCoord = cameraCenter ?? (loc ? [loc.longitude, loc.latitude] : targetCoord);
+    const startBearing = cameraBearing ?? 0;
+    const startZoom = zoomLevel;
+
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const lon = startCoord[0] + (targetCoord[0] - startCoord[0]) * t;
+      const lat = startCoord[1] + (targetCoord[1] - startCoord[1]) * t;
+      const bear = typeof targetBearing === 'number' ? startBearing + (targetBearing - startBearing) * t : undefined;
+      const z = typeof targetZoom === 'number' ? startZoom + (targetZoom - startZoom) * t : undefined;
+      // update state so Camera prop animates (Camera's animationDuration will animate changes)
+      setCameraCenter([lon, lat]);
+      if (typeof bear === 'number') setCameraBearing(bear);
+      if (typeof z === 'number') setZoomLevel(z);
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise(res => setTimeout(res, interval));
+    }
+
+    // Finalize state
+    setCameraCenter(targetCoord);
+    if (typeof targetBearing === 'number') setCameraBearing(targetBearing);
+    if (typeof targetZoom === 'number') setZoomLevel(targetZoom);
+  };
   // Performance: throttle heavy intersection computation
   const lastRunRef = useRef<number>(0);
   const MIN_RUN_INTERVAL = 2000; // ms
@@ -46,6 +97,8 @@ export default function MapScreen() {
       const pos = await Location.getCurrentPositionAsync({});
       console.log('MapScreen: Got current position', pos.coords.latitude, pos.coords.longitude);
       setLoc(pos.coords);
+      // initialize camera center
+      setCameraCenter([pos.coords.longitude, pos.coords.latitude]);
       await setupNotifications();
     }
     // Fallback: ensure map becomes ready on Android if callbacks don't fire
@@ -180,9 +233,12 @@ export default function MapScreen() {
 
   useEffect(()=>{ if(!ready) return; let sub:Location.LocationSubscription|null=null;
     (async()=>{ sub=await Location.watchPositionAsync({accuracy:Location.Accuracy.High,distanceInterval:12},pos=>{
-      setLoc(pos.coords); run([pos.coords.longitude,pos.coords.latitude]); }); })();
+      setLoc(pos.coords);
+      // if follow mode is active, update camera center to keep user centered
+      if (followUser) setCameraCenter([pos.coords.longitude, pos.coords.latitude]);
+      run([pos.coords.longitude,pos.coords.latitude]); }); })();
     return()=>sub?.remove();
-  },[ready,run]);
+  },[ready,run,followUser]);
 
   if(!loc) return <ThemedView style={styles.loading}><ActivityIndicator size="large"/></ThemedView>;
 
@@ -191,7 +247,7 @@ export default function MapScreen() {
       <MapView 
         ref={mapRef as any} 
         style={styles.map} 
-        mapStyle={MAP_STYLE} 
+        mapStyle={mapStyle} 
         onDidFinishRenderingMapFully={()=>{
           console.log('Map finished rendering fully');
           setReady(true);
@@ -201,7 +257,12 @@ export default function MapScreen() {
           setReady(true);
         }}
       >
-        <Camera zoomLevel={16} centerCoordinate={[loc.longitude,loc.latitude]} />
+        <Camera
+          zoomLevel={zoomLevel}
+          centerCoordinate={cameraCenter ?? [loc.longitude, loc.latitude]}
+          bearing={cameraBearing}
+          animationDuration={300}
+        />
         <PointAnnotation id="user" coordinate={[loc.longitude,loc.latitude]}><ThemedView style={styles.user}/></PointAnnotation>
         {/* Branched intersections (3+ way) highlighted in green on top */}
         {branchedInts.map((p,i)=>(
@@ -210,6 +271,80 @@ export default function MapScreen() {
           </PointAnnotation>
         ))}
       </MapView>
+      {/* Floating controls */}
+      <View style={styles.fabContainer} pointerEvents="box-none">
+        <View style={styles.fabColumn}>
+          {/* Top: Align with location (fetch fresh pos + short heading watch for immediate response) */}
+          <TouchableOpacity
+            style={styles.fab}
+            onPress={async () => {
+              try {
+                const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+                setLoc(pos.coords);
+                setFollowUser(true);
+                // quick heading sample and smooth fly
+                try {
+                  const hdgSample = await new Promise<number | undefined>(resolve => {
+                    let done = false;
+                    Location.watchHeadingAsync(h => {
+                      if (done) return;
+                      done = true;
+                      const hdg = (h as any).trueHeading ?? (h as any).magHeading ?? 0;
+                      resolve(hdg || 0);
+                    }).then(sub => {
+                      // safety unsubscribe after 1.5s
+                      setTimeout(() => { try { sub.remove(); } catch (_) {} }, 1500);
+                    }).catch(() => resolve(undefined));
+                    // fallback timer
+                    setTimeout(() => { if (!done) { done = true; resolve(undefined); } }, 1200);
+                  });
+                  const bearing = hdgSample ?? 0;
+                  await smoothFlyTo([pos.coords.longitude, pos.coords.latitude], bearing, undefined, 700);
+                } catch (e) {
+                  // if heading not available, just fly to location
+                  await smoothFlyTo([pos.coords.longitude, pos.coords.latitude], 0, undefined, 700);
+                }
+              } catch (err) {
+                console.error('Align with location failed:', err);
+              }
+            }}
+          >
+            <Ionicons name="navigate" size={20} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Middle: Satellite toggle */}
+          <TouchableOpacity
+            style={[styles.fab, { marginTop: 12 }]}
+            onPress={() => {
+              setMapStyle(prev => prev === MAP_STYLE_STREETS ? MAP_STYLE_SATELLITE : MAP_STYLE_STREETS);
+            }}
+          >
+            <Ionicons name="layers" size={20} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Zoom controls placed under satellite button */}
+          <TouchableOpacity
+            style={[styles.fab, { marginTop: 18 }]}
+            onPress={async () => {
+              const newZoom = Math.min(zoomLevel + 1, 20);
+              await smoothFlyTo(cameraCenter ?? [loc.longitude, loc.latitude], cameraBearing, newZoom, 300);
+            }}
+          >
+            <Ionicons name="add" size={20} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.fab, { marginTop: 12 }]}
+            onPress={async () => {
+              const newZoom = Math.max(zoomLevel - 1, 1);
+              await smoothFlyTo(cameraCenter ?? [loc.longitude, loc.latitude], cameraBearing, newZoom, 300);
+            }}
+          >
+            <Ionicons name="remove" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* previously separate zoom control removed; zoom buttons now sit under satellite button */}
     </ThemedView>
   );
 }
@@ -221,4 +356,26 @@ const styles=StyleSheet.create({
   user:{width:14,height:14,borderRadius:7,backgroundColor:'#007AFF',borderWidth:2,borderColor:'#fff'},
   dot:{width:12,height:12,borderRadius:6,backgroundColor:'red',borderWidth:2,borderColor:'#fff'},
   branchedDot:{width:14,height:14,borderRadius:7,backgroundColor:'limegreen',borderWidth:2,borderColor:'#fff'},
+  fabContainer: {
+    position: 'absolute',
+    right: 16,
+    top: 120,
+    zIndex: 200,
+  },
+  fabColumn: {
+    alignItems: 'center',
+  },
+  fab: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#111',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  /* zoomContainer removed - zoom buttons are now under satellite button */
 });
