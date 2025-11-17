@@ -2,6 +2,7 @@ import { ThemedView } from '@/components/themed-view';
 import { saveIntersections } from '@/utils/intersectionCache';
 import { setupNotifications } from '@/utils/notifications';
 import { getSettings, type NotificationSettings } from '@/utils/settings';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   Camera, MapView, PointAnnotation, type MapViewRef,
 } from '@maplibre/maplibre-react-native';
@@ -10,8 +11,7 @@ import * as turf from '@turf/turf';
 import * as Location from 'expo-location';
 import type { Feature, LineString } from 'geojson';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, StyleSheet, TouchableOpacity, View } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { ActivityIndicator, Dimensions, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 const MAP_STYLE_STREETS = 'https://api.maptiler.com/maps/streets-v4/style.json?key=P6xL3GTk8oM1rxbEtoly';
 const MAP_STYLE_SATELLITE = 'https://api.maptiler.com/maps/hybrid/style.json?key=P6xL3GTk8oM1rxbEtoly';
@@ -49,7 +49,7 @@ export default function MapScreen() {
   ) => {
     // Try native setCamera with duration first
     try {
-      await mapRef.current?.setCamera?.({ centerCoordinate: targetCoord, bearing: targetBearing, zoomLevel: targetZoom, pitch: targetPitch, duration });
+      await (mapRef.current as any)?.setCamera?.({ centerCoordinate: targetCoord, bearing: targetBearing, zoomLevel: targetZoom, pitch: targetPitch, duration });
       // update local state
       setCameraCenter(targetCoord);
       if (typeof targetBearing === 'number') setCameraBearing(targetBearing);
@@ -83,7 +83,7 @@ export default function MapScreen() {
 
         // Prefer native per-frame camera updates when available for smoothness
           try {
-            mapRef.current?.setCamera?.({ centerCoordinate: [lon, lat], bearing: bear, zoomLevel: z, pitch: p, duration: 0 });
+            (mapRef.current as any)?.setCamera?.({ centerCoordinate: [lon, lat], bearing: bear, zoomLevel: z, pitch: p, duration: 0 });
           } catch (e) {
             // Fallback to updating state which will let Camera animate
             setCameraCenter([lon, lat]);
@@ -136,6 +136,12 @@ export default function MapScreen() {
   })(); }, []);
 
   const run = useCallback(async (userLL: [number, number]) => {
+    // TEMPORARY: disable expensive intersection computation on Android to diagnose blank screen
+    if (Platform.OS === 'android') {
+      console.log('MapScreen: Intersection computation disabled on Android (blank screen diagnostic)');
+      return;
+    }
+
     if (!mapRef.current || !ready) return;
     // Throttle to avoid running expensive geometry ops too often
     const now = Date.now();
@@ -284,7 +290,7 @@ export default function MapScreen() {
     let cancelled = false;
     const sync = async () => {
       try {
-        const cam = await mapRef.current?.getCamera?.();
+        const cam = await (mapRef.current as any)?.getCamera?.();
         const nativeZoom = cam?.zoom ?? cam?.zoomLevel ?? cam?.zoomLevel;
         if (!cancelled && typeof nativeZoom === 'number' && Math.abs(nativeZoom - zoomLevel) > 0.001) {
           setZoomLevel(nativeZoom);
@@ -302,7 +308,7 @@ export default function MapScreen() {
   // Immediate sync: called from map event handlers to update zoom/center/bearing instantly
   const syncCameraInstant = async () => {
     try {
-      const cam = await mapRef.current?.getCamera?.();
+      const cam = await (mapRef.current as any)?.getCamera?.();
       if (!cam) return;
       const nativeZoom = cam.zoom ?? cam.zoomLevel ?? cam.zoomLevel;
       if (typeof nativeZoom === 'number') setZoomLevel(nativeZoom);
@@ -339,7 +345,6 @@ export default function MapScreen() {
         <Camera
           zoomLevel={zoomLevel}
           centerCoordinate={cameraCenter ?? [loc.longitude, loc.latitude]}
-          bearing={cameraBearing}
           pitch={pitch}
           animationDuration={300}
         />
@@ -407,7 +412,7 @@ export default function MapScreen() {
             style={[styles.fab, { marginTop: 12 }]}
             onPress={async () => {
               try {
-                const cam = await mapRef.current?.getCamera?.();
+                const cam = await (mapRef.current as any)?.getCamera?.();
                 const targetPitch = (typeof pitch === 'number' && pitch > 1) ? 0 : 60;
                 const targetCenter = (cam && cam.centerCoordinate && Array.isArray(cam.centerCoordinate))
                   ? [cam.centerCoordinate[0], cam.centerCoordinate[1]] as [number, number]
@@ -430,7 +435,7 @@ export default function MapScreen() {
             style={[styles.fab, { marginTop: 18 }]}
             onPress={async () => {
               try {
-                const cam = await mapRef.current?.getCamera?.();
+                const cam = await (mapRef.current as any)?.getCamera?.();
                 const nativeZoom = (cam?.zoom ?? cam?.zoomLevel ?? zoomLevel) as number;
                 const newZoom = Math.min(nativeZoom + 1, 20);
                 const targetCenter = (cam && cam.centerCoordinate && Array.isArray(cam.centerCoordinate))
@@ -464,7 +469,7 @@ export default function MapScreen() {
             style={[styles.fab, { marginTop: 12 }]}
             onPress={async () => {
               try {
-                const cam = await mapRef.current?.getCamera?.();
+                const cam = await (mapRef.current as any)?.getCamera?.();
                 const nativeZoom = (cam?.zoom ?? cam?.zoomLevel ?? zoomLevel) as number;
                 const newZoom = Math.max(nativeZoom - 1, 1);
                 const targetCenter = (cam && cam.centerCoordinate && Array.isArray(cam.centerCoordinate))

@@ -6,7 +6,6 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedView } from '@/components/themed-view';
-import { GlassView } from 'expo-glass-effect';
 
 // ✅ Use Ionicons (cross‑platform)
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -39,8 +38,7 @@ function TabScreens() {
   // indicator. The outer TabLayout already includes SafeAreaProvider.
   return (
     <SafeAreaView edges={["bottom"]} style={styles.safeArea}>
-        <GlassView material="systemUltraThinMaterial" style={styles.glass}>
-          <ThemedView elevated="low" style={[styles.tabBar, { backgroundColor: 'transparent' }]}>
+        <ThemedView elevated="low" style={[styles.tabBar, { backgroundColor: 'transparent' }]}>
           <NativeTabs>
 
           <NativeTabs.Trigger name="explore">
@@ -59,7 +57,6 @@ function TabScreens() {
           </NativeTabs.Trigger>
         </NativeTabs>
         </ThemedView>
-      </GlassView>
     </SafeAreaView>
   );
 }
