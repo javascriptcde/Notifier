@@ -14,12 +14,12 @@ export interface NotificationSettings {
 }
 
 const DEFAULT_SETTINGS: NotificationSettings = {
-  enabled: false,
+  enabled: true,
   accessibilityMode: false,
   notifyDistance: 20,
   vibrationEnabled: true,
-  soundEnabled: true,
-  voicePrompts: false,
+  soundEnabled: false,
+  voicePrompts: true,
   vibrationStrength: 2,
 };
 

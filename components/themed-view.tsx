@@ -1,59 +1,50 @@
-import { Platform, StyleSheet, View, type ViewProps } from 'react-native';
+import { View, type ViewProps } from 'react-native';
 
-// expo-glass-effect may not be available in some environments. Try to
-// require GlassView at runtime and fall back to a regular View when it's
-// not present to avoid "cannot read property 'default' of undefined".
-let GlassView: any = null;
-try {
-  const mod = require('expo-glass-effect');
-  GlassView = mod && (mod.GlassView || mod.default || mod);
-} catch (e) {
-  GlassView = null;
-}
-
-import { DesignTokens } from '@/constants/theme';
 import { useThemeColor } from '@/hooks/use-theme-color';
 
 export type ThemedViewProps = ViewProps & {
   lightColor?: string;
   darkColor?: string;
-  // iOS liquid glass
+  // UI helpers used around the app for a glass/elevated look
   glass?: boolean;
-  // control the glass style when using GlassView: 'regular' | 'clear' | 'tint'
-  glassVariant?: 'regular' | 'clear' | 'tint';
-  // Android Material elevation: 'low' | 'medium' | 'high'
-  elevated?: 'low' | 'medium' | 'high';
+  glassVariant?: 'tint' | 'regular' | 'transparent' | string;
+  elevated?: 'low' | 'medium' | 'high' | string;
 };
 
-export function ThemedView({ style, lightColor, darkColor, glass, elevated, ...otherProps }: ThemedViewProps) {
+export function ThemedView({ style, lightColor, darkColor, glass, glassVariant, elevated, ...otherProps }: ThemedViewProps) {
   const backgroundColor = useThemeColor({ light: lightColor, dark: darkColor }, 'background');
 
-  // iOS: use GlassView for Liquid Glass surfaces
-  if (glass && Platform.OS === 'ios' && GlassView) {
-    const iosTokens = DesignTokens.ios;
-    const variant = otherProps && (otherProps as any).glassVariant ? (otherProps as any).glassVariant : 'regular';
-
-    return (
-      <GlassView
-        style={[styles.glass, { borderRadius: iosTokens.borderRadius }, style]}
-        glassEffectStyle={variant}
-        {...otherProps}
-      />
-    );
+  // Minimal visual adjustments to support "glass" and "elevated" props
+  const extraStyle: any = {};
+  if (glass) {
+    // Make background slightly translucent to emulate a glass effect
+    extraStyle.backgroundColor = backgroundColor ? `${backgroundColor}CC` : 'rgba(255,255,255,0.6)';
+    extraStyle.borderWidth = 1;
+    extraStyle.borderColor = 'rgba(0,0,0,0.06)';
   }
 
-  // Android: apply elevation tokens
-  const androidStyle: any = {};
-  if (elevated && Platform.OS === 'android') {
-    const e = DesignTokens.android.elevation[elevated];
-    androidStyle.elevation = e;
+  if (elevated) {
+    // Simple cross-platform shadow approximation
+    if (elevated === 'low') {
+      extraStyle.elevation = 1;
+      extraStyle.shadowColor = '#000';
+      extraStyle.shadowOpacity = 0.08;
+      extraStyle.shadowOffset = { width: 0, height: 1 };
+      extraStyle.shadowRadius = 2;
+    } else if (elevated === 'medium') {
+      extraStyle.elevation = 4;
+      extraStyle.shadowColor = '#000';
+      extraStyle.shadowOpacity = 0.12;
+      extraStyle.shadowOffset = { width: 0, height: 2 };
+      extraStyle.shadowRadius = 6;
+    } else if (elevated === 'high') {
+      extraStyle.elevation = 8;
+      extraStyle.shadowColor = '#000';
+      extraStyle.shadowOpacity = 0.18;
+      extraStyle.shadowOffset = { width: 0, height: 4 };
+      extraStyle.shadowRadius = 12;
+    }
   }
 
-  return <View style={[{ backgroundColor }, androidStyle, style]} {...otherProps} />;
+  return <View style={[{ backgroundColor }, extraStyle, style]} {...otherProps} />;
 }
-
-const styles = StyleSheet.create({
-  glass: {
-    overflow: 'hidden',
-  },
-});

@@ -41,7 +41,3 @@ app-example
 # generated native folders
 /ios
 /android
-
-# Google OAuth client secrets
-client_secret_*.json
-.env.local

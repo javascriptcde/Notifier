@@ -1,36 +1,47 @@
-import { Platform, StyleSheet, Text, type TextProps, useColorScheme } from 'react-native';
+import { StyleSheet, Text, type TextProps } from 'react-native';
 
-import { DesignTokens } from '@/constants/theme';
 import { useThemeColor } from '@/hooks/use-theme-color';
 
 export type ThemedTextProps = TextProps & {
   lightColor?: string;
   darkColor?: string;
-  variant?: 'body' | 'title' | 'subtitle' | 'caption' | 'link';
+  // primary prop historically called `type`; some places use `variant`.
+  type?: 'default' | 'title' | 'defaultSemiBold' | 'subtitle' | 'link';
+  variant?: 'default' | 'title' | 'defaultSemiBold' | 'subtitle' | 'link' | 'body' | string;
 };
 
 export function ThemedText({
   style,
   lightColor,
   darkColor,
-  variant = 'body',
+  type = 'default',
+  variant,
   ...rest
 }: ThemedTextProps) {
   const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
-  const platform = useColorScheme() === 'dark' ? 'dark' : 'light';
 
-  // Pick tokens from DesignTokens depending on platform (prefer iOS tokens on iOS, Android tokens on Android)
-  const tokens = DesignTokens[Platform.OS === 'ios' ? 'ios' : 'android'];
-  const tv = tokens.typography[variant === 'link' ? 'body' : variant];
+  // Support legacy/alternate `variant` prop. Map common values to our `type`.
+  let resolvedType = type;
+  if (variant) {
+    if (variant === 'body') resolvedType = 'default';
+    else if (variant === 'title' || variant === 'defaultSemiBold' || variant === 'subtitle' || variant === 'link') resolvedType = variant as any;
+    else resolvedType = type;
+  }
 
-  const textStyle = {
-    fontSize: tv.fontSize,
-    lineHeight: tv.lineHeight,
-    fontWeight: tv.fontWeight as any,
-    color,
-  };
-
-  return <Text style={[textStyle, style]} {...rest} />;
+  return (
+    <Text
+      style={[
+        { color },
+        resolvedType === 'default' ? styles.default : undefined,
+        resolvedType === 'title' ? styles.title : undefined,
+        resolvedType === 'defaultSemiBold' ? styles.defaultSemiBold : undefined,
+        resolvedType === 'subtitle' ? styles.subtitle : undefined,
+        resolvedType === 'link' ? styles.link : undefined,
+        style,
+      ]}
+      {...rest}
+    />
+  );
 }
 
 const styles = StyleSheet.create({
