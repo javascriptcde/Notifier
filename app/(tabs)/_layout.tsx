@@ -29,6 +29,33 @@ function StatusBarBlur() {
   );
 }
 
+// Native tab bar for iOS
+function NativeTabBar() {
+  return (
+    <SafeAreaView edges={['bottom']} style={styles.safeArea}>
+      <ThemedView elevated="low" style={[styles.nativeTabBar, { backgroundColor: 'transparent' }]}>
+        <NativeTabs>
+          <NativeTabs.Trigger name="explore">
+            <Icon src={<VectorIcon family={Ionicons} name="home" />} />
+            <Label>Home</Label>
+          </NativeTabs.Trigger>
+
+          <NativeTabs.Trigger name="index">
+            <Icon src={<VectorIcon family={Ionicons} name="paper-plane" />} />
+            <Label>Map</Label>
+          </NativeTabs.Trigger>
+
+          <NativeTabs.Trigger name="settings">
+            <Icon src={<VectorIcon family={Ionicons} name="settings" />} />
+            <Label>Settings</Label>
+          </NativeTabs.Trigger>
+        </NativeTabs>
+      </ThemedView>
+    </SafeAreaView>
+  );
+}
+
+// JavaScript tab bar for Android
 function CustomTabBar({ state, descriptors, navigation }: any) {
   return (
     <SafeAreaView edges={['bottom']} style={styles.customTabBar}>
@@ -84,6 +111,19 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const tint = Colors[colorScheme ?? 'light'].tint;
 
+  // Use native tabs on iOS, custom tabs on Android
+  const useNativeTabs = Platform.OS === 'ios';
+
+  if (useNativeTabs) {
+    // iOS: Use native tabs
+    return (
+      <ThemeProvider>
+        <NativeTabBar />
+      </ThemeProvider>
+    );
+  }
+
+  // Android: Use Tabs with custom JavaScript tab bar
   return (
     <ThemeProvider>
       <Tabs
