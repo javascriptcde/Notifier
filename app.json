@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Notifier",
-    "slug": "notifier",
+    "slug": "Notifier",
     "version": "1.0.9",
     "orientation": "portrait",
     "icon": "./assets/images/AppIcon.png",
@@ -98,7 +98,8 @@
       ],
       "expo-notifications",
       "@maplibre/maplibre-react-native",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -106,12 +107,12 @@
     },
     "extra": {
       "router": {},
-      "eas": {
-        "projectId": "e456df79-8331-4b9d-a6fa-7f6c6730e6d2"
-      },
       "mapProvider": "maptiler",
       "maptilerKey": "P6xL3GTk8oM1rxbEtoly",
-      "stadiaKey": "b0866975-3a25-4498-ad04-f5c184d0c370"
+      "stadiaKey": "b0866975-3a25-4498-ad04-f5c184d0c370",
+      "eas": {
+        "projectId": "e456df79-8331-4b9d-a6fa-7f6c6730e6d2"
+      }
     },
     "owner": "tling"
   }

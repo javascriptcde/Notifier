@@ -1,11 +1,23 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { clearUser as clearPersistedUser, getUser as loadPersistedUser, saveUser as persistUser, saveTokens } from '@/utils/auth';
 import Slider from '@react-native-community/slider';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as Speech from 'expo-speech';
 import * as TaskManager from 'expo-task-manager';
+import React, { useEffect, useState } from 'react';
+import {
+    Alert,
+    Button,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Switch,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { getSettings, updateSettings, type NotificationSettings } from '../../utils/settings';
 // Import OAuth libraries at runtime so types don't cause build failures when
 // packages aren't installed in all environments. We attempt a dynamic require
 // and fall back gracefully if the package is missing (developer will need to
@@ -13,7 +25,7 @@ import * as TaskManager from 'expo-task-manager';
 let AuthSession: any = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  AuthSession = require('expo-auth-session');
+  AuthSession = require('expo-auth-session').default;
 } catch (e) {
   // Not fatal: developer may not have installed oauth packages locally
   // eslint-disable-next-line no-console
@@ -28,18 +40,6 @@ try {
   // eslint-disable-next-line no-console
   console.debug('expo-apple-authentication not available');
 }
-import React, { useEffect, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Switch,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { getSettings, updateSettings, type NotificationSettings } from '../../utils/settings';
-import { saveUser as persistUser, getUser as loadPersistedUser, clearUser as clearPersistedUser, saveTokens } from '@/utils/auth';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
