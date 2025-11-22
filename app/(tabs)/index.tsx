@@ -4,14 +4,14 @@ import { setupNotifications } from '@/utils/notifications';
 import { getSettings, type NotificationSettings } from '@/utils/settings';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
-  Camera, MapView, PointAnnotation, type MapViewRef,
+    Camera, MapView, PointAnnotation, type MapViewRef,
 } from '@maplibre/maplibre-react-native';
 import { lineString as ls, point as pt } from '@turf/helpers';
 import * as turf from '@turf/turf';
 import * as Location from 'expo-location';
 import type { Feature, LineString } from 'geojson';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Dimensions, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 const MAP_STYLE_STREETS = 'https://api.maptiler.com/maps/streets-v4/style.json?key=P6xL3GTk8oM1rxbEtoly';
 const MAP_STYLE_SATELLITE = 'https://api.maptiler.com/maps/hybrid/style.json?key=P6xL3GTk8oM1rxbEtoly';
@@ -136,12 +136,6 @@ export default function MapScreen() {
   })(); }, []);
 
   const run = useCallback(async (userLL: [number, number]) => {
-    // TEMPORARY: disable expensive intersection computation on Android to diagnose blank screen
-    if (Platform.OS === 'android') {
-      console.log('MapScreen: Intersection computation disabled on Android (blank screen diagnostic)');
-      return;
-    }
-
     if (!mapRef.current || !ready) return;
     // Throttle to avoid running expensive geometry ops too often
     const now = Date.now();

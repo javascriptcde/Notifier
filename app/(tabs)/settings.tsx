@@ -316,7 +316,7 @@ export default function SettingsScreen() {
                     <Button title="Sign in with Google" onPress={signInWithGoogle} />
                   </ThemedView>
                 )}
-                {AuthSession && (
+                {AuthSession && Platform.OS !== 'android' && (
                   <ThemedView style={styles.authButton}>
                     <Button title="Sign in with Microsoft" onPress={signInWithMicrosoft} />
                   </ThemedView>
