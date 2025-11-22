@@ -10,6 +10,7 @@ import { ThemedView } from '@/components/themed-view';
 
 // ✅ Use Ionicons (cross‑platform)
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Icon, Label, NativeTabs, VectorIcon } from 'expo-router/unstable-native-tabs';
 
 function StatusBarBlur() {
   const insets = useSafeAreaInsets();
