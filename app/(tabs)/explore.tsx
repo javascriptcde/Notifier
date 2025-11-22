@@ -17,7 +17,7 @@ export default function ExploreScreen() {
   const isDark = theme === 'dark';
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={{ flex: 1 }}>
+    <SafeAreaView edges={Platform.OS === 'ios' ? [] : ['top', 'left', 'right']} style={{ flex: 1 }}>
       <ParallaxScrollView
         headerBackgroundColor={{ light: '#e4e4e4ff', dark: '#353636' }}
         headerImage={

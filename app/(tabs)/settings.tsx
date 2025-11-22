@@ -25,14 +25,13 @@ import { getSettings, updateSettings, type NotificationSettings } from '../../ut
 let AuthSession: any = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require('expo-auth-session');
-  AuthSession = mod.default || mod;
+  AuthSession = require('expo-auth-session');
+  console.log('AuthSession loaded successfully, startAsync available:', typeof AuthSession.startAsync);
 } catch (e) {
   // Not fatal: developer may not have installed oauth packages locally
   // eslint-disable-next-line no-console
   console.error('expo-auth-session import failed:', e);
 }
-
 let AppleAuthentication: any = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -286,7 +285,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={Platform.OS === 'ios' ? [] : ['bottom']} style={styles.container}>
       <ScrollView style={styles.scrollView}>
         {/* Login/Account Section */}
         <ThemedView
