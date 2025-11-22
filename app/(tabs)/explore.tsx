@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
 import React from 'react';
 import { Platform, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ExternalLink } from '@/components/external-link';
 import ParallaxScrollView from '@/components/parallax-scroll-view';
@@ -16,19 +17,20 @@ export default function ExploreScreen() {
   const isDark = theme === 'dark';
 
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#e4e4e4ff', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#e4e4e4ff"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={[styles.card, styles.welcomeCard]} elevated="medium">
-        <ThemedText>Hello</ThemedText>
-      </ThemedView>
+    <SafeAreaView edges={['top', 'left', 'right']} style={{ flex: 1 }}>
+      <ParallaxScrollView
+        headerBackgroundColor={{ light: '#e4e4e4ff', dark: '#353636' }}
+        headerImage={
+          <IconSymbol
+            size={310}
+            color="#e4e4e4ff"
+            name="chevron.left.forwardslash.chevron.right"
+            style={styles.headerImage}
+          />
+        }>
+        <ThemedView style={[styles.card, styles.welcomeCard]} elevated="medium">
+          <ThemedText>Hello</ThemedText>
+        </ThemedView>
 
       <ThemedView 
         style={styles.titleContainer} 
@@ -98,7 +100,8 @@ export default function ExploreScreen() {
             ),
         })}
       </Collapsible>
-    </ParallaxScrollView>
+      </ParallaxScrollView>
+    </SafeAreaView>
   );
 }
 

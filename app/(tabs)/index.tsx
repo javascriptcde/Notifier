@@ -12,7 +12,7 @@ import * as Location from 'expo-location';
 import type { Feature, LineString } from 'geojson';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Dimensions, StyleSheet, TouchableOpacity, View } from 'react-native';
-
+import { SafeAreaView } from 'react-native-safe-area-context';
 const MAP_STYLE_STREETS = 'https://api.maptiler.com/maps/streets-v4/style.json?key=P6xL3GTk8oM1rxbEtoly';
 const MAP_STYLE_SATELLITE = 'https://api.maptiler.com/maps/hybrid/style.json?key=P6xL3GTk8oM1rxbEtoly';
 
@@ -320,22 +320,23 @@ export default function MapScreen() {
   if(!loc) return <ThemedView style={styles.loading}><ActivityIndicator size="large"/></ThemedView>;
 
   return (
-    <ThemedView style={styles.container}>
-      <MapView 
-        ref={mapRef as any} 
-        style={styles.map} 
-        mapStyle={mapStyle} 
-        onDidFinishRenderingMapFully={()=>{
-          console.log('Map finished rendering fully');
-          setReady(true);
-        }}
-        onDidFinishLoadingMap={()=>{
-          console.log('Map finished loading');
-          setReady(true);
-        }}
-        onRegionDidChange={() => { void syncCameraInstant(); }}
-        onRegionIsChanging={() => { void syncCameraInstant(); }}
-      >
+    <SafeAreaView edges={['top', 'left', 'right']} style={{ flex: 1 }}>
+      <ThemedView style={styles.container}>
+        <MapView 
+          ref={mapRef as any} 
+          style={styles.map} 
+          mapStyle={mapStyle} 
+          onDidFinishRenderingMapFully={()=>{
+            console.log('Map finished rendering fully');
+            setReady(true);
+          }}
+          onDidFinishLoadingMap={()=>{
+            console.log('Map finished loading');
+            setReady(true);
+          }}
+          onRegionDidChange={() => { void syncCameraInstant(); }}
+          onRegionIsChanging={() => { void syncCameraInstant(); }}
+        >
         <Camera
           zoomLevel={zoomLevel}
           centerCoordinate={cameraCenter ?? [loc.longitude, loc.latitude]}
@@ -496,7 +497,8 @@ export default function MapScreen() {
       </View>
 
       {/* previously separate zoom control removed; zoom buttons now sit under satellite button */}
-    </ThemedView>
+      </ThemedView>
+    </SafeAreaView>
   );
 }
 

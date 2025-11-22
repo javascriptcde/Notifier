@@ -25,11 +25,12 @@ import { getSettings, updateSettings, type NotificationSettings } from '../../ut
 let AuthSession: any = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  AuthSession = require('expo-auth-session').default;
+  const mod = require('expo-auth-session');
+  AuthSession = mod.default || mod;
 } catch (e) {
   // Not fatal: developer may not have installed oauth packages locally
   // eslint-disable-next-line no-console
-  console.debug('expo-auth-session not available');
+  console.error('expo-auth-session import failed:', e);
 }
 
 let AppleAuthentication: any = null;
@@ -66,10 +67,17 @@ export default function SettingsScreen() {
   });
 
   const [user, setUser] = useState<{ name?: string; email?: string; provider?: string } | null>(null);
+  const [authAvailable, setAuthAvailable] = useState({
+    session: !!AuthSession,
+    apple: !!AppleAuthentication,
+  });
 
   useEffect(() => {
     const loadSettings = async () => {
       try {
+        // Log whether AuthSession is available for debugging
+        console.log('Settings Screen: AuthSession available =', authAvailable.session, 'Platform =', Platform.OS);
+        
         const userSettings = await getSettings();
         setSettings(userSettings);
 
@@ -311,17 +319,17 @@ export default function SettingsScreen() {
                 Sign in to sync your settings across devices.
               </ThemedText>
               <ThemedView style={styles.authButtonsContainer}>
-                {AuthSession && (
+                {authAvailable.session && (
                   <ThemedView style={styles.authButton}>
                     <Button title="Sign in with Google" onPress={signInWithGoogle} />
                   </ThemedView>
                 )}
-                {AuthSession && Platform.OS !== 'android' && (
+                {authAvailable.session && Platform.OS === 'ios' && (
                   <ThemedView style={styles.authButton}>
                     <Button title="Sign in with Microsoft" onPress={signInWithMicrosoft} />
                   </ThemedView>
                 )}
-                {AppleAuthentication && Platform.OS === 'ios' && (
+                {authAvailable.apple && Platform.OS === 'ios' && (
                   <ThemedView style={styles.authButton}>
                     <Button title="Sign in with Apple" onPress={signInWithApple} />
                   </ThemedView>

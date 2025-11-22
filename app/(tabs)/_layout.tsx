@@ -3,7 +3,7 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedView } from '@/components/themed-view';
@@ -58,14 +58,31 @@ function NativeTabBar() {
 
 // JavaScript tab bar for Android
 function CustomTabBar({ state, descriptors, navigation }: any) {
+  const getTabLabel = (routeName: string) => {
+    switch (routeName) {
+      case 'explore':
+        return 'Home';
+      case 'index':
+        return 'Map';
+      case 'settings':
+        return 'Settings';
+      default:
+        return routeName;
+    }
+  };
+
   return (
     <SafeAreaView edges={['bottom']} style={styles.customTabBar}>
       <ThemedView elevated="low" style={{ backgroundColor: 'transparent' }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', height: 56 }}>
+        <View style={styles.tabButtonContainer}>
           {state.routes.map((route: any, index: number) => {
             const { options } = descriptors[route.key];
-            const label = options.tabBarLabel || options.title || route.name;
             const isFocused = state.index === index;
+
+            // Skip routes that are not defined tabs
+            if (!['explore', 'index', 'settings'].includes(route.name)) {
+              return null;
+            }
 
             const onPress = () => {
               const event = navigation.emit({
@@ -95,10 +112,13 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
             return (
               <View
                 key={route.key}
-                style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+                style={styles.tabButton}
                 onTouchEnd={onPress}
               >
                 {getIcon(isFocused)}
+                <Text style={[styles.tabLabel, { color: isFocused ? '#007AFF' : '#666' }]}>
+                  {getTabLabel(route.name)}
+                </Text>
               </View>
             );
           })}
@@ -169,9 +189,27 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   customTabBar: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#ffffff',
     borderTopWidth: 1,
     borderTopColor: '#e0e0e0',
+  },
+  tabButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    height: 70,
+    paddingVertical: 4,
+  },
+  tabButton: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  tabLabel: {
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '500',
   },
   statusBarBlur: {
     position: 'absolute',
