@@ -5,7 +5,7 @@ import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as Speech from 'expo-speech';
 import * as TaskManager from 'expo-task-manager';
-import { Vibration } from 'react-native';
+import { Platform, Vibration } from 'react-native';
 
 export const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -16,10 +16,12 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   }
 
   const { locations } = data as { locations: Location.LocationObject[] };
+  if (!locations || locations.length === 0) return;
+
   const { latitude, longitude } = locations[0].coords;
   const userPoint = turf.point([longitude, latitude]);
 
-  // ✅ Check proximity to intersections
+  // Check proximity to intersections
   const intersections = await getCachedIntersections();
   const settings = await getSettings();
   const threshold = settings?.notifyDistance ?? 20;
@@ -27,14 +29,22 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   for (const pt of intersections) {
     const dist = turf.distance(userPoint, turf.point(pt.coordinates), { units: 'meters' });
     if (dist <= threshold && settings?.enabled) {
-      await Notifications.scheduleNotificationAsync({
-        content: {
+      try {
+        const content: any = {
           title: '🚦 Approaching Intersection',
           body: 'Watch for cross traffic.',
           sound: settings.soundEnabled ? true : false,
-        },
-        trigger: null,
-      });
+        };
+
+        // On Android target the background-location channel explicitly
+        if (Platform.OS === 'android') content.android = { channelId: 'background-location' };
+
+        await Notifications.scheduleNotificationAsync({ content: content as any, trigger: null });
+      } catch (notifyErr) {
+        // Background tasks can fail to post notifications if permissions or
+        // the notification channel are missing. Log the error for debugging.
+        console.error('Failed to schedule background notification:', notifyErr);
+      }
 
       if (settings.vibrationEnabled) {
         // Simple mapping: 1 -> short, 2 -> medium, 3 -> long

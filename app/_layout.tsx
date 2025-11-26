@@ -45,12 +45,22 @@ export default function RootLayout() {
 
   useEffect(() => {
     const setupNotifications = async () => {
-      // ✅ Android: create notification channel
+      // ✅ Android: create notification channels
       if (Platform.OS === 'android') {
+        // default channel for app notifications
         await Notifications.setNotificationChannelAsync('default', {
           name: 'default',
           importance: Notifications.AndroidImportance.HIGH,
           sound: 'default',
+        });
+
+        // channel explicitly for background location / foreground service
+        // keep importance lower to avoid overly aggressive interruptions
+        await Notifications.setNotificationChannelAsync('background-location', {
+          name: 'Background Location',
+          importance: Notifications.AndroidImportance.DEFAULT,
+          sound: 'default',
+          enableVibrate: false,
         });
       }
 

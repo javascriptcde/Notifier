@@ -9,12 +9,12 @@ import * as Speech from 'expo-speech';
 import * as TaskManager from 'expo-task-manager';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    Button,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Switch,
+  Alert,
+  Button,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getSettings, updateSettings, type NotificationSettings } from '../../utils/settings';
@@ -121,23 +121,44 @@ export default function SettingsScreen() {
           );
           return;
         }
+        // Ensure notification permission is granted on Android (Android 13+ requires it)
+        if (Platform.OS === 'android') {
+          try {
+            const { status: notifStatus } = await Notifications.getPermissionsAsync();
+            if (notifStatus !== 'granted') {
+              const { status: newStatus } = await Notifications.requestPermissionsAsync();
+              if (newStatus !== 'granted') {
+                Alert.alert('Permission Required', 'Notifications permission is required to show background alerts.');
+                return;
+              }
+            }
+          } catch (permErr) {
+            // If permissions API fails, continue — we'll still attempt to start location updates
+            console.debug('Notification permission check failed:', permErr);
+          }
+        }
+
         // Start background location updates so the background task can run
         try {
           const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
-          if (!hasStarted) {
-            await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-              accuracy: Location.Accuracy.Balanced,
-              distanceInterval: 10,
-              timeInterval: 10000,
-              // Android requires a foreground service notification for background location
-              foregroundService: {
-                notificationTitle: 'Notifier: Locating',
-                notificationBody: 'Monitoring nearby intersections',
-                notificationColor: '#FF0000',
-              },
-              pausesUpdatesAutomatically: false,
-            });
-          }
+            if (!hasStarted) {
+              // Cast to any to allow platform-specific foregroundService props
+              const startOpts: any = {
+                accuracy: Location.Accuracy.Balanced,
+                distanceInterval: 10,
+                timeInterval: 10000,
+                // Android requires a foreground service notification for background location
+                foregroundService: {
+                  notificationTitle: 'Notifier: Locating',
+                  notificationBody: 'Monitoring nearby intersections',
+                  notificationColor: '#FF0000',
+                  // Use our explicit background notification channel so Android has a valid channel
+                  notificationChannelId: 'background-location',
+                },
+                pausesUpdatesAutomatically: false,
+              } as any;
+              await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, startOpts);
+            }
         } catch (startErr) {
           console.error('Failed to start background location updates:', startErr);
           Alert.alert('Error', 'Failed to start background location updates.');
