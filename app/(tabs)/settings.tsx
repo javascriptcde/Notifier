@@ -5,7 +5,7 @@ import { clearUser as clearPersistedUser, getUser as loadPersistedUser, saveUser
 import Slider from '@react-native-community/slider';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
-import * as Speech from 'expo-speech';
+// speech helper removed (test voice prompt removed below)
 import * as TaskManager from 'expo-task-manager';
 import React, { useEffect, useState } from 'react';
 import {
@@ -182,29 +182,7 @@ export default function SettingsScreen() {
     }
   };
 
-  const sendTestNotification = async () => {
-    if (!settings.enabled) {
-      Alert.alert('Notifications Disabled', 'Enable notifications first.');
-      return;
-    }
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: '🔔 Test Notification',
-        body: 'This is a test notification from your Settings screen!',
-        sound: true,
-      },
-      trigger: null,
-    });
-  };
-
-  const sendTestVoicePrompt = () => {
-    if (!settings.voicePrompts) {
-      Alert.alert('Voice Prompts Disabled', 'Enable voice prompts first.');
-      return;
-    }
-    Speech.speak('This is a test voice prompt from your Settings screen.');
-  };
+  // Test notification and test voice prompt removed per cleanup request
 
   // Authentication handlers
   const signInWithGoogle = async () => {
@@ -435,15 +413,7 @@ export default function SettingsScreen() {
             />
           </ThemedView>
 
-          <ThemedView 
-            style={styles.buttonContainer} 
-            elevated="low"
-            glass={Platform.OS === 'ios'}
-            glassVariant="regular">
-            <Button title="Send Test Notification" onPress={sendTestNotification} />
-            <ThemedView style={styles.buttonSpacer} />
-            <Button title="Test Voice Prompt" onPress={sendTestVoicePrompt} />
-          </ThemedView>
+          {/* Test helpers removed */}
         </ThemedView>
       </ScrollView>
     </SafeAreaView>
