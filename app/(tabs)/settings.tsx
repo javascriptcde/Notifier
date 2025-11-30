@@ -284,7 +284,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView edges={Platform.OS === 'ios' ? [] : ['bottom']} style={styles.container}>
+    <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={styles.container}>
       <ScrollView style={styles.scrollView}>
         {/* Login/Account Section */}
         <ThemedView

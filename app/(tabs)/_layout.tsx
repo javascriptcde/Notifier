@@ -3,14 +3,14 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedView } from '@/components/themed-view';
 
 // ✅ Use Ionicons (cross‑platform)
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Icon, Label, NativeTabs, VectorIcon } from 'expo-router/unstable-native-tabs';
+// No native tabs — use JS Tabs everywhere now
 
 function StatusBarBlur() {
   const insets = useSafeAreaInsets();
@@ -30,31 +30,7 @@ function StatusBarBlur() {
   );
 }
 
-// Native tab bar for iOS
-function NativeTabBar() {
-  return (
-    <SafeAreaView edges={['bottom']} style={styles.safeArea}>
-      <ThemedView elevated="low" style={[styles.nativeTabBar, { backgroundColor: 'transparent' }]}>
-        <NativeTabs>
-          <NativeTabs.Trigger name="explore">
-            <Icon src={<VectorIcon family={Ionicons} name="home" />} />
-            <Label>Home</Label>
-          </NativeTabs.Trigger>
-
-          <NativeTabs.Trigger name="index">
-            <Icon src={<VectorIcon family={Ionicons} name="paper-plane" />} />
-            <Label>Map</Label>
-          </NativeTabs.Trigger>
-
-          <NativeTabs.Trigger name="settings">
-            <Icon src={<VectorIcon family={Ionicons} name="settings" />} />
-            <Label>Settings</Label>
-          </NativeTabs.Trigger>
-        </NativeTabs>
-      </ThemedView>
-    </SafeAreaView>
-  );
-}
+// We no longer use native tabs. iOS will now use the same JS tabs UI as Android.
 
 // JavaScript tab bar for Android
 function CustomTabBar({ state, descriptors, navigation }: any) {
@@ -132,19 +108,7 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const tint = Colors[colorScheme ?? 'light'].tint;
 
-  // Use native tabs on iOS, custom tabs on Android
-  const useNativeTabs = Platform.OS === 'ios';
-
-  if (useNativeTabs) {
-    // iOS: Use native tabs
-    return (
-      <ThemeProvider>
-        <NativeTabBar />
-      </ThemeProvider>
-    );
-  }
-
-  // Android: Use Tabs with custom JavaScript tab bar
+  // All platforms: Use Tabs with custom JavaScript tab bar
   return (
     <ThemeProvider>
       <Tabs
@@ -181,13 +145,7 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  nativeTabBar: {
-    borderTopLeftRadius: Platform.OS === 'android' ? 16 : 0,
-    borderTopRightRadius: Platform.OS === 'android' ? 16 : 0,
-  },
-  safeArea: {
-    backgroundColor: 'transparent',
-  },
+  /* cleaned up native tab styles (native tabs removed) */
   customTabBar: {
     backgroundColor: '#ffffff',
     borderTopWidth: 1,
