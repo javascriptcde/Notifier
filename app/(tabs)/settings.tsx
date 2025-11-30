@@ -185,16 +185,65 @@ export default function SettingsScreen() {
   // Test notification and test voice prompt removed per cleanup request
 
   // Authentication handlers
+  // Helper: try expo-auth-session.startAsync first, fall back to WebBrowser.openAuthSessionAsync
+  const startAuthFlow = async (authUrl: string) => {
+    // Normalize the result shape to { type: 'success'|'cancel'|'error', params?: Record<string,string>, url?: string }
+    const normalizeFromUrl = (url?: string) => {
+      if (!url) return { type: 'cancel' };
+      // URL may contain params in query or fragment (#). Try both.
+      const [base, fragment] = url.split('#');
+      const queryString = (fragment ?? base).split('?').slice(1).join('?');
+      const pairs = (queryString || '').split('&').filter(Boolean);
+      const params: Record<string, string> = {};
+      for (const p of pairs) {
+        const [k, v] = p.split('=');
+        if (!k) continue;
+        try { params[decodeURIComponent(k)] = decodeURIComponent(v || ''); } catch { params[k] = v || ''; }
+      }
+      return { type: 'success', params, url };
+    };
+
+    try {
+      if (AuthSession && typeof AuthSession.startAsync === 'function') {
+        // expo-auth-session present and provides startAsync
+        // startAsync returns { type: string, params?: Record<string,string>, url?: string }
+        // We await and return the result as-is.
+        // Type is any due to runtime variability.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+        return await AuthSession.startAsync({ authUrl });
+      }
+    } catch (e) {
+      // fallthrough to WebBrowser fallback below
+      console.debug('AuthSession.startAsync failed (will fallback to WebBrowser):', (e as any)?.message ?? e);
+    }
+
+    // Fallback: use WebBrowser to open an auth session and parse the returned URL
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const WebBrowser = require('expo-web-browser');
+      if (WebBrowser && typeof WebBrowser.openAuthSessionAsync === 'function') {
+        const res: any = await WebBrowser.openAuthSessionAsync(authUrl, AuthSession?.makeRedirectUri?.({ useProxy: true }));
+        if (res?.type === 'success') {
+          return normalizeFromUrl(res?.url);
+        }
+        return { type: res?.type ?? 'cancel' };
+      }
+    } catch (wbErr) {
+      console.debug('WebBrowser fallback failed for auth flow:', (wbErr as any)?.message ?? wbErr);
+    }
+
+    return { type: 'error' };
+  };
   const signInWithGoogle = async () => {
     try {
-      const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
+      const redirectUri = AuthSession?.makeRedirectUri ? AuthSession.makeRedirectUri({ useProxy: true }) : undefined;
       const clientId = process.env.GOOGLE_CLIENT_ID || '<GOOGLE_CLIENT_ID_HERE>';
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
         redirectUri
       )}&response_type=token&scope=profile%20email`;
-      const result = await AuthSession.startAsync({ authUrl });
-      if (result.type === 'success' && (result as any).params?.access_token) {
-        const token = (result as any).params.access_token;
+      const result: any = await startAuthFlow(authUrl);
+      if (result.type === 'success' && result.params?.access_token) {
+        const token = result.params.access_token;
         const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -214,14 +263,14 @@ export default function SettingsScreen() {
 
   const signInWithMicrosoft = async () => {
     try {
-      const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
+      const redirectUri = AuthSession?.makeRedirectUri ? AuthSession.makeRedirectUri({ useProxy: true }) : undefined;
       const clientId = process.env.MICROSOFT_CLIENT_ID || '<MICROSOFT_CLIENT_ID_HERE>';
       const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(
         redirectUri
       )}&scope=openid%20profile%20email`;
-      const result = await AuthSession.startAsync({ authUrl });
-      if (result.type === 'success' && (result as any).params?.access_token) {
-        const token = (result as any).params.access_token;
+      const result: any = await startAuthFlow(authUrl);
+      if (result.type === 'success' && result.params?.access_token) {
+        const token = result.params.access_token;
         const resp = await fetch('https://graph.microsoft.com/v1.0/me', {
           headers: { Authorization: `Bearer ${token}` },
         });
