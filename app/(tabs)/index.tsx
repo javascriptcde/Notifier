@@ -4,7 +4,7 @@ import { setupNotifications } from '@/utils/notifications';
 import { getSettings, type NotificationSettings } from '@/utils/settings';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
-    Camera, MapView, PointAnnotation, type MapViewRef,
+  Camera, MapView, PointAnnotation, type MapViewRef,
 } from '@maplibre/maplibre-react-native';
 import { lineString as ls, point as pt } from '@turf/helpers';
 import * as turf from '@turf/turf';
@@ -158,21 +158,28 @@ export default function MapScreen() {
     }
 
     // Convert to Turf lineStrings
-    let lines: Feature<LineString>[] = roads.flatMap((f: any) =>
+    // Keep source mapping so we can ignore intersections between adjacent
+    // segments that come from the same source feature (curvy roads split into
+    // multiple line segments can produce spurious intersections).
+    type LineItem = { line: Feature<LineString>; sourceIndex: number };
+    let lines: LineItem[] = roads.flatMap((f: any, srcIdx: number) =>
       f.geometry.type === 'LineString'
-        ? [ls(f.geometry.coordinates)]
-        : (f.geometry.coordinates as number[][][]).map(c => ls(c))
+        ? [{ line: ls(f.geometry.coordinates), sourceIndex: srcIdx }]
+        : (f.geometry.coordinates as number[][][]).map(c => ({ line: ls(c), sourceIndex: srcIdx }))
     );
 
     // If we have many lines, simplify geometries and sample to top N by length
     const MAX_LINES = 120;
     if (lines.length > MAX_LINES) {
-      const linesWithLen = lines.map(l => ({
-        len: turf.length(l, { units: 'kilometers' }),
-        line: l,
+      const linesWithLen = lines.map((l, idx) => ({
+        len: turf.length(l.line, { units: 'kilometers' }),
+        line: l.line,
+        src: l.sourceIndex,
+        idx,
       }));
       linesWithLen.sort((a, b) => b.len - a.len);
-      lines = linesWithLen.slice(0, MAX_LINES).map(x => x.line).map(l => turf.simplify(l, { tolerance: 0.0005, highQuality: false }));
+      const top = linesWithLen.slice(0, MAX_LINES);
+      lines = top.map(x => ({ line: turf.simplify(x.line, { tolerance: 0.0005, highQuality: false }), sourceIndex: x.src }));
     }
 
     // Get crosswalk and traffic signal information
@@ -187,7 +194,10 @@ export default function MapScreen() {
     const intMap = new Map<string, IntKey>();
     for (let i = 0; i < lines.length; i++) {
       for (let j = i + 1; j < lines.length; j++) {
-        const inter = turf.lineIntersect(lines[i], lines[j]);
+        // Skip intersections where both segments came from the same source feature
+        // -- these are likely adjacent segments from a single curvy road.
+        if (lines[i].sourceIndex === lines[j].sourceIndex) continue;
+        const inter = turf.lineIntersect(lines[i].line, lines[j].line);
         if (inter && inter.features && inter.features.length) {
           inter.features.forEach(q => {
             const coord = q.geometry.coordinates as number[];
@@ -206,8 +216,10 @@ export default function MapScreen() {
       raw.push({ lon: int.lon, lat: int.lat });
     });
 
-    // Dedupe and process intersections (2m threshold to keep nearby intersections separate)
-    const DEDUP_DISTANCE_METERS = 2;
+      // Dedupe and process intersections (smaller threshold — keep intersections
+      // closer together as separate points). Reduced from 2m to 1m for finer
+      // separation per user request.
+      const DEDUP_DISTANCE_METERS = 1.0;
     const dedup: P[] = [];
     raw.forEach(a => {
       if (!dedup.some(b => turf.distance(pt([a.lon, a.lat]), pt([b.lon, b.lat]), { units: 'meters' }) < DEDUP_DISTANCE_METERS)) {
@@ -236,9 +248,13 @@ export default function MapScreen() {
       for (const [, intKey] of intMap) {
         if (turf.distance(point, pt([intKey.lon, intKey.lat]), { units: 'meters' }) <= DEDUP_DISTANCE_METERS) {
           for (const pairKey of intKey.pairs) {
-            const [i, j] = pairKey.split(',').map(Number);
-            distinctIndices.add(i);
-            distinctIndices.add(j);
+            const [li, lj] = pairKey.split(',').map(Number);
+            // Use sourceIndex (original feature index) so adjacent segment pairs
+            // from the same source are counted as one road.
+            const srcI = lines[li].sourceIndex;
+            const srcJ = lines[lj].sourceIndex;
+            distinctIndices.add(srcI);
+            distinctIndices.add(srcJ);
           }
         }
       }
