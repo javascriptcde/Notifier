@@ -5,7 +5,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ExternalLink } from '@/components/external-link';
 import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { useTheme } from '@/components/ThemeContext';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Collapsible } from '@/components/ui/collapsible';
@@ -13,8 +12,6 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Fonts } from '@/constants/theme';
 
 export default function ExploreScreen() {
-  const { theme } = useTheme();
-  const isDark = theme === 'dark';
 
   return (
     <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={{ flex: 1 }}>
@@ -81,7 +78,7 @@ export default function ExploreScreen() {
 
       <Collapsible title="Light and dark mode components">
         <ThemedText>
-          This template has light and dark mode support. The <ThemedText variant="subtitle">useColorScheme()</ThemedText> hook lets you inspect what the user's current color scheme is, and so you can adjust UI colors accordingly.
+          This template has light and dark mode support. The <ThemedText variant="subtitle">useColorScheme()</ThemedText> hook lets you inspect what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
         </ThemedText>
         <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
           <ThemedText variant="link">Learn more</ThemedText>

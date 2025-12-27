@@ -1,7 +1,6 @@
 import { ThemedView } from '@/components/themed-view';
 import { saveIntersections } from '@/utils/intersectionCache';
 import { setupNotifications } from '@/utils/notifications';
-import { getSettings, type NotificationSettings } from '@/utils/settings';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   Camera, MapView, PointAnnotation, type MapViewRef,
@@ -27,10 +26,7 @@ type P = {
 export default function MapScreen() {
   const [loc, setLoc] = useState<Location.LocationObjectCoords | null>(null);
   const [ready, setReady] = useState(false);
-  const [ints, setInts] = useState<P[]>([]);
   const [branchedInts, setBranchedInts] = useState<P[]>([]);
-  const [lastNotificationTime, setLastNotificationTime] = useState(0);
-  const [settings, setSettings] = useState<NotificationSettings | null>(null);
   const mapRef = useRef<MapViewRef | null>(null);
   const [mapStyle, setMapStyle] = useState(MAP_STYLE_STREETS);
   const [followUser, setFollowUser] = useState(false);
@@ -56,7 +52,7 @@ export default function MapScreen() {
       if (typeof targetZoom === 'number') setZoomLevel(targetZoom);
       if (typeof targetPitch === 'number') setPitch(targetPitch);
       return;
-    } catch (e) {
+    } catch {
       // fall back to rAF interpolation
     }
 
@@ -84,7 +80,7 @@ export default function MapScreen() {
         // Prefer native per-frame camera updates when available for smoothness
           try {
             (mapRef.current as any)?.setCamera?.({ centerCoordinate: [lon, lat], bearing: bear, zoomLevel: z, pitch: p, duration: 0 });
-          } catch (e) {
+          } catch {
             // Fallback to updating state which will let Camera animate
             setCameraCenter([lon, lat]);
             if (typeof bear === 'number') setCameraBearing(bear);
@@ -113,12 +109,8 @@ export default function MapScreen() {
 
   useEffect(() => { (async () => {
     console.log('MapScreen: Starting initialization');
-    const [locationStatus, userSettings] = await Promise.all([
-      Location.requestForegroundPermissionsAsync(),
-      getSettings()
-    ]);
-    console.log('MapScreen: Location status =', locationStatus.status, 'Settings loaded');
-    setSettings(userSettings);
+    const locationStatus = await Location.requestForegroundPermissionsAsync();
+    console.log('MapScreen: Location status =', locationStatus.status);
     if (locationStatus.status === 'granted') {
       const pos = await Location.getCurrentPositionAsync({});
       console.log('MapScreen: Got current position', pos.coords.latitude, pos.coords.longitude);
@@ -264,7 +256,6 @@ export default function MapScreen() {
 
     // Display all deduped intersections as red dots, and keep the
     // branched (3+ direction) set separately so we can highlight them.
-    setInts(dedup);
     setBranchedInts(branched);
     try {
       // Cache processed intersections (GeoJSON Point geometries) for background tasks
@@ -278,7 +269,7 @@ export default function MapScreen() {
 
     // Foreground notifications are disabled by preference; background task handles alerts.
   console.log(`roads=${roads.length} detected=${dedup.length}`);
-  }, [ready, lastNotificationTime]);
+  }, [ready]);
 
   useEffect(()=>{ if(!ready) return; let sub:Location.LocationSubscription|null=null;
     // keep ref in sync so callbacks see the latest value immediately
@@ -305,7 +296,7 @@ export default function MapScreen() {
         if (!cancelled && typeof nativeZoom === 'number' && Math.abs(nativeZoom - zoomLevel) > 0.001) {
           setZoomLevel(nativeZoom);
         }
-      } catch (e) {
+      } catch {
         // ignore if API not available
       }
     };
@@ -313,7 +304,7 @@ export default function MapScreen() {
     // run once immediately
     void sync();
     return () => { cancelled = true; clearInterval(id); };
-  }, [ready]);
+  }, [ready, zoomLevel]);
 
   // Immediate sync: called from map event handlers to update zoom/center/bearing instantly
   const syncCameraInstant = async () => {
@@ -328,7 +319,7 @@ export default function MapScreen() {
       if (typeof cam.bearing === 'number') setCameraBearing(cam.bearing);
       // some map implementations expose pitch on the camera
       if (typeof (cam as any).pitch === 'number') setPitch((cam as any).pitch);
-    } catch (e) {
+    } catch {
       // ignore
     }
   };
@@ -389,14 +380,14 @@ export default function MapScreen() {
                       resolve(hdg || 0);
                     }).then(sub => {
                       // safety unsubscribe after 1.5s
-                      setTimeout(() => { try { sub.remove(); } catch (_) {} }, 1500);
+                      setTimeout(() => { try { sub.remove(); } catch {} }, 1500);
                     }).catch(() => resolve(undefined));
                     // fallback timer
                     setTimeout(() => { if (!done) { done = true; resolve(undefined); } }, 1200);
                   });
                   const bearing = hdgSample ?? 0;
                   await smoothFlyTo([pos.coords.longitude, pos.coords.latitude], bearing, undefined, undefined, 700);
-                } catch (e) {
+                } catch {
                   // if heading not available, just fly to location
                   await smoothFlyTo([pos.coords.longitude, pos.coords.latitude], 0, undefined, undefined, 700);
                 }
@@ -460,7 +451,7 @@ export default function MapScreen() {
                   // restore follow after animation
                   setTimeout(() => setFollowUser(true), 350);
                 }
-              } catch (e) {
+              } catch {
                 const nativeZoom = zoomLevel;
                 const newZoom = Math.min(nativeZoom + 1, 20);
                 const targetCenter = cameraCenter ?? null;
@@ -493,7 +484,7 @@ export default function MapScreen() {
                 if (wasFollowing) {
                   setTimeout(() => setFollowUser(true), 350);
                 }
-              } catch (e) {
+              } catch {
                 const nativeZoom = zoomLevel;
                 const newZoom = Math.max(nativeZoom - 1, 1);
                 const targetCenter = cameraCenter ?? null;

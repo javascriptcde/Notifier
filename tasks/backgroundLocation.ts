@@ -1,6 +1,7 @@
 import { getCachedIntersections } from '@/utils/intersectionCache';
 import { getSettings } from '@/utils/settings';
 import * as turf from '@turf/turf';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as Speech from 'expo-speech';
@@ -8,6 +9,8 @@ import * as TaskManager from 'expo-task-manager';
 import { Platform, Vibration } from 'react-native';
 
 export const LOCATION_TASK_NAME = 'background-location-task';
+
+const NOTIFIED_KEY = 'notifiedIntersections';
 
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   if (error) {
@@ -21,14 +24,35 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   const { latitude, longitude } = locations[0].coords;
   const userPoint = turf.point([longitude, latitude]);
 
+  // Load notified intersections
+  let notified: Set<string>;
+  try {
+    const stored = await AsyncStorage.getItem(NOTIFIED_KEY);
+    notified = new Set(stored ? JSON.parse(stored) : []);
+  } catch (e) {
+    console.error('Failed to load notified intersections:', e);
+    notified = new Set();
+  }
+
   // Check proximity to intersections
   const intersections = await getCachedIntersections();
   const settings = await getSettings();
   const threshold = settings?.notifyDistance ?? 20;
 
+  let notifiedUpdated = false;
+
   for (const pt of intersections) {
     const dist = turf.distance(userPoint, turf.point(pt.coordinates), { units: 'meters' });
-    if (dist <= threshold && settings?.enabled) {
+    const key = `${pt.coordinates[0].toFixed(6)},${pt.coordinates[1].toFixed(6)}`;
+
+    if (dist >= 100) {
+      if (notified.has(key)) {
+        notified.delete(key);
+        notifiedUpdated = true;
+      }
+    }
+
+    if (dist <= threshold && !notified.has(key) && settings?.enabled) {
       try {
         const content: any = {
           title: '🚦 Approaching Intersection',
@@ -56,7 +80,18 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
         Speech.speak('Approaching an intersection. Please be alert.');
       }
 
-      break;
+      notified.add(key);
+      notifiedUpdated = true;
+      break; // Notify only once per location update
+    }
+  }
+
+  // Save updated notified set if changed
+  if (notifiedUpdated) {
+    try {
+      await AsyncStorage.setItem(NOTIFIED_KEY, JSON.stringify([...notified]));
+    } catch (e) {
+      console.error('Failed to save notified intersections:', e);
     }
   }
 });

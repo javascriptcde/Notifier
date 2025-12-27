@@ -4,31 +4,13 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedView } from '@/components/themed-view';
 
 // ✅ Use Ionicons (cross‑platform)
 import Ionicons from '@expo/vector-icons/Ionicons';
 // No native tabs — use JS Tabs everywhere now
-
-function StatusBarBlur() {
-  const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
-
-  return (
-    <View
-      style={[
-        styles.statusBarBlur,
-        {
-          height: insets.top,
-          backgroundColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 255, 255, 0.6)',
-        },
-      ]}
-    />
-  );
-}
 
 // We no longer use native tabs. iOS will now use the same JS tabs UI as Android.
 
@@ -52,7 +34,6 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
       <ThemedView elevated="low" style={{ backgroundColor: 'transparent' }}>
         <View style={styles.tabButtonContainer}>
           {state.routes.map((route: any, index: number) => {
-            const { options } = descriptors[route.key];
             const isFocused = state.index === index;
 
             // Skip routes that are not defined tabs

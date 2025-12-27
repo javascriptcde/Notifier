@@ -4,31 +4,15 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
 import { Platform } from 'react-native';
-// Only require reanimated if available; importing it unconditionally can
-// throw when the native module isn't linked (Expo Go). Use a try/catch
-// so the app can still run in environments without the native part.
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const Reanimated = require('react-native-reanimated');
-  // The library may export the module as default or as the module itself.
-  const R = Reanimated && (Reanimated.default ?? Reanimated);
-
-  // Per Reanimated troubleshooting, try to call runtime initialization helpers
-  // when available so the native part is properly wired up in dev clients.
-  if (R && R.enableLayoutAnimations) {
-    try {
-      R.enableLayoutAnimations?.(true);
-    } catch (initErr) {
-      // Non-fatal initialization error
-      console.debug('Reanimated init error:', (initErr as any)?.message ?? String(initErr));
-    }
-  }
-} catch (e) {
-  // Not fatal — fall back to non-reanimated behavior and warn.
-  // The parallax component and other pieces use fallbacks when reanimated
-  // isn't present, so the app remains functional in Expo Go.
-  // Log at debug level to help troubleshooting.
-  console.debug('react-native-reanimated not fully available:', (e as any)?.message ?? String(e));
+// Require react-native-reanimated early and initialize layout animations.
+// If the library is not available, fail fast instead of silently falling back.
+const Reanimated = require('react-native-reanimated');
+const R = Reanimated && (Reanimated.default ?? Reanimated);
+if (!R) {
+  throw new Error('react-native-reanimated is required — install and rebuild the native app.');
+}
+if (R && typeof R.enableLayoutAnimations === 'function') {
+  R.enableLayoutAnimations(true);
 }
 
 // ✅ Register background location task

@@ -1,6 +1,5 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { clearUser as clearPersistedUser, getUser as loadPersistedUser, saveUser as persistUser, saveTokens } from '@/utils/auth';
 import Slider from '@react-native-community/slider';
 import * as Location from 'expo-location';
@@ -9,12 +8,12 @@ import * as Notifications from 'expo-notifications';
 import * as TaskManager from 'expo-task-manager';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
-  Button,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Switch,
+    Alert,
+    Button,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getSettings, updateSettings, type NotificationSettings } from '../../utils/settings';
@@ -22,22 +21,11 @@ import { getSettings, updateSettings, type NotificationSettings } from '../../ut
 // packages aren't installed in all environments. We attempt a dynamic require
 // and fall back gracefully if the package is missing (developer will need to
 // install and configure client IDs for real authentication flows).
-let AuthSession: any = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  AuthSession = require('expo-auth-session');
-  console.log('AuthSession loaded successfully, startAsync available:', typeof AuthSession.startAsync);
-} catch (e) {
-  // Not fatal: developer may not have installed oauth packages locally
-  // eslint-disable-next-line no-console
-  console.error('expo-auth-session import failed:', e);
-}
+import * as AuthSession from 'expo-auth-session';
 let AppleAuthentication: any = null;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   AppleAuthentication = require('expo-apple-authentication');
-} catch (e) {
-  // eslint-disable-next-line no-console
+} catch {
   console.debug('expo-apple-authentication not available');
 }
 
@@ -52,8 +40,6 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
 });
 
 export default function SettingsScreen() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
 
   const [settings, setSettings] = useState<NotificationSettings>({
     enabled: false,
@@ -66,10 +52,28 @@ export default function SettingsScreen() {
   });
 
   const [user, setUser] = useState<{ name?: string; email?: string; provider?: string } | null>(null);
-  const [authAvailable, setAuthAvailable] = useState({
+  const authAvailable = {
     session: !!AuthSession,
     apple: !!AppleAuthentication,
-  });
+  };
+
+  // ---------- Google auth (PKCE) using expo-auth-session ------------
+  const googleClientId = process.env.GOOGLE_CLIENT_ID || '<GOOGLE_CLIENT_ID_HERE>';
+  const redirectUri = AuthSession.makeRedirectUri({ useProxy: true } as any);
+  const googleDiscovery = React.useMemo(() => ({
+    authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenEndpoint: 'https://oauth2.googleapis.com/token',
+  } as const), []);
+
+  const [googleRequest, googleResponse, promptGoogle] = AuthSession.useAuthRequest(
+    {
+      clientId: googleClientId,
+      redirectUri,
+      scopes: ['openid', 'profile', 'email'],
+      responseType: AuthSession.ResponseType.Code,
+    },
+    googleDiscovery
+  );
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -98,7 +102,7 @@ export default function SettingsScreen() {
     };
 
     loadSettings();
-  }, []);
+  }, [authAvailable.session]);
 
   const handleSettingChange = async (key: keyof NotificationSettings, value: any) => {
     try {
@@ -169,8 +173,7 @@ export default function SettingsScreen() {
         try {
           const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
           if (hasStarted) await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-        } catch (stopErr) {
-          console.error('Failed to stop background location updates:', stopErr);
+        } catch {
         }
       }
       const newSettings = await updateSettings({ [key]: value });
@@ -203,23 +206,10 @@ export default function SettingsScreen() {
       return { type: 'success', params, url };
     };
 
-    try {
-      if (AuthSession && typeof AuthSession.startAsync === 'function') {
-        // expo-auth-session present and provides startAsync
-        // startAsync returns { type: string, params?: Record<string,string>, url?: string }
-        // We await and return the result as-is.
-        // Type is any due to runtime variability.
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-        return await AuthSession.startAsync({ authUrl });
-      }
-    } catch (e) {
-      // fallthrough to WebBrowser fallback below
-      console.debug('AuthSession.startAsync failed (will fallback to WebBrowser):', (e as any)?.message ?? e);
-    }
+    // Prefer WebBrowser.openAuthSessionAsync for stability across environments.
 
     // Fallback: use WebBrowser to open an auth session and parse the returned URL
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const WebBrowser = require('expo-web-browser');
       if (WebBrowser && typeof WebBrowser.openAuthSessionAsync === 'function') {
         const res: any = await WebBrowser.openAuthSessionAsync(authUrl, AuthSession?.makeRedirectUri?.({ useProxy: true }));
@@ -235,31 +225,63 @@ export default function SettingsScreen() {
     return { type: 'error' };
   };
   const signInWithGoogle = async () => {
+    if (!googleRequest) {
+      Alert.alert('Auth not ready', 'Google auth request not ready. Please try again.');
+      return;
+    }
+
     try {
-      const redirectUri = AuthSession?.makeRedirectUri ? AuthSession.makeRedirectUri({ useProxy: true }) : undefined;
-      const clientId = process.env.GOOGLE_CLIENT_ID || '<GOOGLE_CLIENT_ID_HERE>';
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
-        redirectUri
-      )}&response_type=token&scope=profile%20email`;
-      const result: any = await startAuthFlow(authUrl);
-      if (result.type === 'success' && result.params?.access_token) {
-        const token = result.params.access_token;
-        const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const profile = await resp.json();
-        const u = { name: profile.name, email: profile.email, provider: 'google' };
-        setUser(u);
-        await persistUser(u);
-        if ((result as any).params) await saveTokens({ provider: 'google', tokens: (result as any).params });
-      } else {
-        Alert.alert('Google Sign-In cancelled');
-      }
+      // Launch the PKCE auth flow managed by expo-auth-session
+      await promptGoogle({ useProxy: true });
     } catch (e) {
-      console.error('Google sign-in failed:', e);
-      Alert.alert('Error', 'Google sign-in failed. Check console for details.');
+      console.error('Failed to start Google sign-in:', e);
+      Alert.alert('Error', 'Failed to start Google sign-in. Check console for details.');
     }
   };
+
+  // Handle the response from the Google auth request and exchange code for tokens
+  useEffect(() => {
+    if (googleResponse?.type === 'success' && googleRequest) {
+      (async () => {
+        try {
+          const code = googleResponse.params?.code;
+          if (!code) {
+            Alert.alert('Auth error', 'Missing authorization code from Google.');
+            return;
+          }
+
+          const tokenResult: any = await (AuthSession as any).exchangeCodeAsync(
+            {
+              code,
+              clientId: googleClientId,
+              redirectUri,
+              codeVerifier: (googleRequest as any).codeVerifier,
+            } as any,
+            googleDiscovery
+          );
+
+          if (!tokenResult?.accessToken) {
+            console.error('Token exchange failed', tokenResult);
+            Alert.alert('Auth error', 'Failed to exchange authorization code for tokens.');
+            return;
+          }
+
+          const token = tokenResult.accessToken as string;
+          const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const profile = await resp.json();
+          const u = { name: profile.name, email: profile.email, provider: 'google' };
+          setUser(u);
+          await persistUser(u);
+          await saveTokens({ provider: 'google', tokens: tokenResult as any });
+        } catch (e) {
+          console.error('Google sign-in (exchange) failed:', e);
+          Alert.alert('Error', 'Google sign-in failed during token exchange. See console.');
+        }
+      })();
+    }
+  }, [googleResponse, googleRequest, googleClientId, googleDiscovery, redirectUri]);
 
   const signInWithMicrosoft = async () => {
     try {
