@@ -2,7 +2,7 @@
   "expo": {
     "name": "Notifier",
     "slug": "Notifier",
-    "version": "2026.1.3",
+    "version": "2026.1.6",
     "orientation": "portrait",
     "icon": "./assets/images/AppIcon.png",
     "scheme": "notifier",
