@@ -3,14 +3,15 @@ import { saveIntersections } from '@/utils/intersectionCache';
 import { setupNotifications } from '@/utils/notifications';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
-  Camera, MapView, PointAnnotation, type MapViewRef,
+    Camera, MapView, PointAnnotation, type MapViewRef,
 } from '@maplibre/maplibre-react-native';
 import { lineString as ls, point as pt } from '@turf/helpers';
 import * as turf from '@turf/turf';
+import { GlassView } from 'expo-glass-effect';
 import * as Location from 'expo-location';
 import type { Feature, LineString } from 'geojson';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Dimensions, FlatList, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 const MAP_STYLE_STREETS = 'https://api.maptiler.com/maps/streets-v4/style.json?key=P6xL3GTk8oM1rxbEtoly';
 const MAP_STYLE_SATELLITE = 'https://api.maptiler.com/maps/hybrid/style.json?key=P6xL3GTk8oM1rxbEtoly';
@@ -35,6 +36,10 @@ export default function MapScreen() {
   const [cameraBearing, setCameraBearing] = useState<number | undefined>(0);
   const [pitch, setPitch] = useState<number>(0);
   const [zoomLevel, setZoomLevel] = useState<number>(16);
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [selectedPlace, setSelectedPlace] = useState<any>(null);
   // Smooth camera fly helper: tries native animation, falls back to requestAnimationFrame-based interpolation
   const smoothFlyTo = async (
     targetCoord: [number, number],
@@ -103,6 +108,22 @@ export default function MapScreen() {
       requestAnimationFrame(step);
     });
   };
+
+  const fetchSuggestions = async (query: string) => {
+    if (query.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
+      const data = await response.json();
+      setSuggestions(data);
+    } catch (error) {
+      console.error('Error fetching suggestions:', error);
+      setSuggestions([]);
+    }
+  };
+
   // Performance: throttle heavy intersection computation
   const lastRunRef = useRef<number>(0);
   const MIN_RUN_INTERVAL = 3000; // ms
@@ -285,6 +306,13 @@ export default function MapScreen() {
   // keep followUserRef updated whenever followUser state changes
   useEffect(() => { followUserRef.current = followUser; }, [followUser]);
 
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      fetchSuggestions(searchText);
+    }, 300);
+    return () => clearTimeout(timeoutId);
+  }, [searchText]);
+
   // Keep zoomLevel in sync with native map state: poll camera zoom periodically when ready
   useEffect(() => {
     if (!ready) return;
@@ -358,6 +386,122 @@ export default function MapScreen() {
           </PointAnnotation>
         ))}
       </MapView>
+
+      {/* Search button at top left */}
+      <TouchableOpacity
+        style={styles.searchButton}
+        onPress={() => setSearchVisible(true)}
+      >
+        <Ionicons name="search" size={20} color="#fff" />
+      </TouchableOpacity>
+
+      {/* Search overlay */}
+      {searchVisible && (
+        <View style={styles.searchOverlay}>
+          {Platform.OS === 'ios' ? (
+            <GlassView style={styles.searchContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search for places..."
+                value={searchText}
+                onChangeText={setSearchText}
+                autoFocus
+              />
+              <TouchableOpacity onPress={() => { setSearchVisible(false); setSearchText(''); setSuggestions([]); }}>
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+            </GlassView>
+          ) : (
+            <View style={styles.searchContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search for places..."
+                value={searchText}
+                onChangeText={setSearchText}
+                autoFocus
+              />
+              <TouchableOpacity onPress={() => { setSearchVisible(false); setSearchText(''); setSuggestions([]); }}>
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+            </View>
+          )}
+          {suggestions.length > 0 && (
+            Platform.OS === 'ios' ? (
+              <GlassView style={styles.suggestionsList}>
+                <FlatList
+                  data={suggestions}
+                  keyExtractor={(item) => item.place_id.toString()}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.suggestionItem}
+                      onPress={() => {
+                        setSelectedPlace(item);
+                        setSearchVisible(false);
+                        setSearchText('');
+                        setSuggestions([]);
+                        // Fly to the place
+                        const lat = parseFloat(item.lat);
+                        const lon = parseFloat(item.lon);
+                        smoothFlyTo([lon, lat], 0, 16, 0, 600);
+                      }}
+                    >
+                      <Text style={styles.suggestionText}>{item.display_name}</Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              </GlassView>
+            ) : (
+              <FlatList
+                data={suggestions}
+                keyExtractor={(item) => item.place_id.toString()}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.suggestionItem}
+                    onPress={() => {
+                      setSelectedPlace(item);
+                      setSearchVisible(false);
+                      setSearchText('');
+                      setSuggestions([]);
+                      // Fly to the place
+                      const lat = parseFloat(item.lat);
+                      const lon = parseFloat(item.lon);
+                      smoothFlyTo([lon, lat], 0, 16, 0, 600);
+                    }}
+                  >
+                    <Text style={styles.suggestionText}>{item.display_name}</Text>
+                  </TouchableOpacity>
+                )}
+                style={styles.suggestionsList}
+              />
+            )
+          )}
+        </View>
+      )}
+
+      {/* Place info modal */}
+      {selectedPlace && (
+        <Modal
+          visible={!!selectedPlace}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setSelectedPlace(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.placeInfo}>
+              <Text style={styles.placeTitle}>{selectedPlace.display_name}</Text>
+              <Text>Latitude: {selectedPlace.lat}</Text>
+              <Text>Longitude: {selectedPlace.lon}</Text>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setSelectedPlace(null)}
+              >
+                <Text>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
       {/* Floating controls */}
       <View style={styles.fabContainer} pointerEvents="box-none">
         <View style={styles.fabColumn}>
@@ -536,6 +680,113 @@ const styles=StyleSheet.create({
     shadowOpacity: 0.3,
     shadowOffset: { width: 0, height: 2 },
     elevation: 5,
+  },
+  searchButton: {
+    position: 'absolute',
+    top: 60,
+    left: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#111',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+    zIndex: 200,
+  },
+  searchOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 300,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    margin: 16,
+    marginTop: 60,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    ...Platform.select({
+      android: {
+        elevation: 4,
+      },
+      ios: {
+        shadowColor: '#000',
+        shadowOpacity: 0.1,
+        shadowOffset: { width: 0, height: 2 },
+      },
+    }),
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+  },
+  suggestionsList: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 4,
+    borderRadius: 8,
+    maxHeight: 200,
+    ...Platform.select({
+      android: {
+        elevation: 4,
+      },
+      ios: {
+        shadowColor: '#000',
+        shadowOpacity: 0.1,
+        shadowOffset: { width: 0, height: 2 },
+      },
+    }),
+  },
+  suggestionItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  suggestionText: {
+    fontSize: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  placeInfo: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    ...Platform.select({
+      android: {
+        elevation: 8,
+      },
+      ios: {
+        shadowColor: '#000',
+        shadowOpacity: 0.2,
+        shadowOffset: { width: 0, height: -2 },
+      },
+    }),
+  },
+  placeTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  closeButton: {
+    marginTop: 20,
+    alignSelf: 'center',
+    padding: 10,
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
   },
   /* zoomContainer removed - zoom buttons are now under satellite button */
 });

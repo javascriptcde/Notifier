@@ -16,6 +16,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 // JavaScript tab bar for Android
 function CustomTabBar({ state, descriptors, navigation }: any) {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+
   const getTabLabel = (routeName: string) => {
     switch (routeName) {
       case 'explore':
@@ -31,7 +34,7 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
 
   return (
     <SafeAreaView edges={['bottom']} style={styles.customTabBar}>
-      <ThemedView elevated="low" style={{ backgroundColor: 'transparent' }}>
+      <ThemedView elevated="low" style={{ backgroundColor: colorScheme === 'dark' ? '#000000' : 'transparent' }}>
         <View style={styles.tabButtonContainer}>
           {state.routes.map((route: any, index: number) => {
             const isFocused = state.index === index;
@@ -56,11 +59,11 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
             const getIcon = (focused: boolean) => {
               switch (route.name) {
                 case 'explore':
-                  return <Ionicons name={focused ? 'home' : 'home-outline'} size={24} color={isFocused ? '#007AFF' : '#666'} />;
+                  return <Ionicons name={focused ? 'home' : 'home-outline'} size={24} color={focused ? colors.tabIconSelected : colors.tabIconDefault} />;
                 case 'index':
-                  return <Ionicons name={focused ? 'paper-plane' : 'paper-plane-outline'} size={24} color={isFocused ? '#007AFF' : '#666'} />;
+                  return <Ionicons name={focused ? 'paper-plane' : 'paper-plane-outline'} size={24} color={focused ? colors.tabIconSelected : colors.tabIconDefault} />;
                 case 'settings':
-                  return <Ionicons name={focused ? 'settings' : 'settings-outline'} size={24} color={isFocused ? '#007AFF' : '#666'} />;
+                  return <Ionicons name={focused ? 'settings' : 'settings-outline'} size={24} color={focused ? colors.tabIconSelected : colors.tabIconDefault} />;
                 default:
                   return null;
               }
@@ -73,7 +76,7 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
                 onTouchEnd={onPress}
               >
                 {getIcon(isFocused)}
-                <Text style={[styles.tabLabel, { color: isFocused ? '#007AFF' : '#666' }]}>
+                <Text style={[styles.tabLabel, { color: isFocused ? colors.tabIconSelected : colors.tabIconDefault }]}>
                   {getTabLabel(route.name)}
                 </Text>
               </View>

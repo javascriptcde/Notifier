@@ -1,6 +1,5 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { clearUser as clearPersistedUser, getUser as loadPersistedUser, saveUser as persistUser, saveTokens } from '@/utils/auth';
 import Slider from '@react-native-community/slider';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
@@ -9,25 +8,13 @@ import * as TaskManager from 'expo-task-manager';
 import React, { useEffect, useState } from 'react';
 import {
     Alert,
-    Button,
     Platform,
     ScrollView,
     StyleSheet,
-    Switch,
+    Switch
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getSettings, updateSettings, type NotificationSettings } from '../../utils/settings';
-// Import OAuth libraries at runtime so types don't cause build failures when
-// packages aren't installed in all environments. We attempt a dynamic require
-// and fall back gracefully if the package is missing (developer will need to
-// install and configure client IDs for real authentication flows).
-import * as AuthSession from 'expo-auth-session';
-let AppleAuthentication: any = null;
-try {
-  AppleAuthentication = require('expo-apple-authentication');
-} catch {
-  console.debug('expo-apple-authentication not available');
-}
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -51,36 +38,9 @@ export default function SettingsScreen() {
     vibrationStrength: 2,
   });
 
-  const [user, setUser] = useState<{ name?: string; email?: string; provider?: string } | null>(null);
-  const authAvailable = {
-    session: !!AuthSession,
-    apple: !!AppleAuthentication,
-  };
-
-  // ---------- Google auth (PKCE) using expo-auth-session ------------
-  const googleClientId = process.env.GOOGLE_CLIENT_ID || '<GOOGLE_CLIENT_ID_HERE>';
-  const redirectUri = AuthSession.makeRedirectUri({ useProxy: true } as any);
-  const googleDiscovery = React.useMemo(() => ({
-    authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-    tokenEndpoint: 'https://oauth2.googleapis.com/token',
-  } as const), []);
-
-  const [googleRequest, googleResponse, promptGoogle] = AuthSession.useAuthRequest(
-    {
-      clientId: googleClientId,
-      redirectUri,
-      scopes: ['openid', 'profile', 'email'],
-      responseType: AuthSession.ResponseType.Code,
-    },
-    googleDiscovery
-  );
-
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        // Log whether AuthSession is available for debugging
-        console.log('Settings Screen: AuthSession available =', authAvailable.session, 'Platform =', Platform.OS);
-        
         const userSettings = await getSettings();
         setSettings(userSettings);
 
@@ -91,18 +51,13 @@ export default function SettingsScreen() {
             sound: 'default',
           });
         }
-        // Load persisted user from storage
-        const persistedUser = await loadPersistedUser();
-        if (persistedUser) {
-          setUser(persistedUser);
-        }
       } catch (error) {
         console.error('Failed to load settings:', error);
       }
     };
 
     loadSettings();
-  }, [authAvailable.session]);
+  }, []);
 
   const handleSettingChange = async (key: keyof NotificationSettings, value: any) => {
     try {
@@ -187,227 +142,9 @@ export default function SettingsScreen() {
 
   // Test notification and test voice prompt removed per cleanup request
 
-  // Authentication handlers
-  // Helper: try expo-auth-session.startAsync first, fall back to WebBrowser.openAuthSessionAsync
-  const startAuthFlow = async (authUrl: string) => {
-    // Normalize the result shape to { type: 'success'|'cancel'|'error', params?: Record<string,string>, url?: string }
-    const normalizeFromUrl = (url?: string) => {
-      if (!url) return { type: 'cancel' };
-      // URL may contain params in query or fragment (#). Try both.
-      const [base, fragment] = url.split('#');
-      const queryString = (fragment ?? base).split('?').slice(1).join('?');
-      const pairs = (queryString || '').split('&').filter(Boolean);
-      const params: Record<string, string> = {};
-      for (const p of pairs) {
-        const [k, v] = p.split('=');
-        if (!k) continue;
-        try { params[decodeURIComponent(k)] = decodeURIComponent(v || ''); } catch { params[k] = v || ''; }
-      }
-      return { type: 'success', params, url };
-    };
-
-    // Prefer WebBrowser.openAuthSessionAsync for stability across environments.
-
-    // Fallback: use WebBrowser to open an auth session and parse the returned URL
-    try {
-      const WebBrowser = require('expo-web-browser');
-      if (WebBrowser && typeof WebBrowser.openAuthSessionAsync === 'function') {
-        const res: any = await WebBrowser.openAuthSessionAsync(authUrl, AuthSession?.makeRedirectUri?.({ useProxy: true }));
-        if (res?.type === 'success') {
-          return normalizeFromUrl(res?.url);
-        }
-        return { type: res?.type ?? 'cancel' };
-      }
-    } catch (wbErr) {
-      console.debug('WebBrowser fallback failed for auth flow:', (wbErr as any)?.message ?? wbErr);
-    }
-
-    return { type: 'error' };
-  };
-  const signInWithGoogle = async () => {
-    if (!googleRequest) {
-      Alert.alert('Auth not ready', 'Google auth request not ready. Please try again.');
-      return;
-    }
-
-    try {
-      // Launch the PKCE auth flow managed by expo-auth-session
-      await promptGoogle({ useProxy: true });
-    } catch (e) {
-      console.error('Failed to start Google sign-in:', e);
-      Alert.alert('Error', 'Failed to start Google sign-in. Check console for details.');
-    }
-  };
-
-  // Handle the response from the Google auth request and exchange code for tokens
-  useEffect(() => {
-    if (googleResponse?.type === 'success' && googleRequest) {
-      (async () => {
-        try {
-          const code = googleResponse.params?.code;
-          if (!code) {
-            Alert.alert('Auth error', 'Missing authorization code from Google.');
-            return;
-          }
-
-          const tokenResult: any = await (AuthSession as any).exchangeCodeAsync(
-            {
-              code,
-              clientId: googleClientId,
-              redirectUri,
-              codeVerifier: (googleRequest as any).codeVerifier,
-            } as any,
-            googleDiscovery
-          );
-
-          if (!tokenResult?.accessToken) {
-            console.error('Token exchange failed', tokenResult);
-            Alert.alert('Auth error', 'Failed to exchange authorization code for tokens.');
-            return;
-          }
-
-          const token = tokenResult.accessToken as string;
-          const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const profile = await resp.json();
-          const u = { name: profile.name, email: profile.email, provider: 'google' };
-          setUser(u);
-          await persistUser(u);
-          await saveTokens({ provider: 'google', tokens: tokenResult as any });
-        } catch (e) {
-          console.error('Google sign-in (exchange) failed:', e);
-          Alert.alert('Error', 'Google sign-in failed during token exchange. See console.');
-        }
-      })();
-    }
-  }, [googleResponse, googleRequest, googleClientId, googleDiscovery, redirectUri]);
-
-  const signInWithMicrosoft = async () => {
-    try {
-      const redirectUri = AuthSession?.makeRedirectUri ? AuthSession.makeRedirectUri({ useProxy: true }) : undefined;
-      const clientId = process.env.MICROSOFT_CLIENT_ID || '<MICROSOFT_CLIENT_ID_HERE>';
-      const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(
-        redirectUri
-      )}&scope=openid%20profile%20email`;
-      const result: any = await startAuthFlow(authUrl);
-      if (result.type === 'success' && result.params?.access_token) {
-        const token = result.params.access_token;
-        const resp = await fetch('https://graph.microsoft.com/v1.0/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const profile = await resp.json();
-        const u = { name: profile.displayName, email: profile.mail || profile.userPrincipalName, provider: 'microsoft' };
-        setUser(u);
-        await persistUser(u);
-        if ((result as any).params) await saveTokens({ provider: 'microsoft', tokens: (result as any).params });
-      } else {
-        Alert.alert('Microsoft Sign-In cancelled');
-      }
-    } catch (e) {
-      console.error('Microsoft sign-in failed:', e);
-      Alert.alert('Error', 'Microsoft sign-in failed. Check console for details.');
-    }
-  };
-
-  const signInWithApple = async () => {
-    try {
-      const available = await AppleAuthentication.isAvailableAsync();
-      if (!available) {
-        Alert.alert('Apple Sign-in not available on this device');
-        return;
-      }
-      const credential = await AppleAuthentication.signInAsync({
-        requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
-        ],
-      });
-      const name = credential.fullName ? `${credential.fullName.givenName ?? ''} ${credential.fullName.familyName ?? ''}`.trim() : undefined;
-      const u = { name, email: credential.email, provider: 'apple' };
-      setUser(u);
-      await persistUser(u);
-    } catch (e: any) {
-      if (e.code === 'ERR_CANCELED') return;
-      console.error('Apple sign-in failed:', e);
-      Alert.alert('Error', 'Apple sign-in failed. Check console for details.');
-    }
-  };
-
-  const handleSignOut = async () => {
-    Alert.alert('Sign Out', 'Are you sure?', [
-      { text: 'Cancel', onPress: () => {} },
-      {
-        text: 'Sign Out',
-        onPress: async () => {
-          await clearPersistedUser();
-          setUser(null);
-          Alert.alert('Signed Out', 'You have been signed out.');
-        },
-      },
-    ]);
-  };
-
-  const getInitials = (name?: string) => {
-    if (!name) return '?';
-    const parts = name.split(' ');
-    return parts.map(p => p[0]).join('').toUpperCase().slice(0, 2);
-  };
-
   return (
     <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={styles.container}>
       <ScrollView style={styles.scrollView}>
-        {/* Login/Account Section */}
-        <ThemedView
-          style={styles.accountSection}
-          glass={Platform.OS === 'ios'}
-          glassVariant="tint"
-          elevated={Platform.OS === 'android' ? 'medium' : undefined}>
-          {user ? (
-            <ThemedView style={styles.userCard}>
-              <ThemedView style={styles.avatarContainer}>
-                <ThemedView style={styles.avatar}>
-                  <ThemedText style={styles.avatarText}>{getInitials(user.name)}</ThemedText>
-                </ThemedView>
-                <ThemedView style={styles.userInfo}>
-                  <ThemedText variant="title" style={styles.userName}>
-                    {user.name || 'User'}
-                  </ThemedText>
-                  <ThemedText style={styles.userEmail}>{user.email}</ThemedText>
-                  <ThemedText style={styles.userProvider}>
-                    Signed in with {user.provider?.charAt(0).toUpperCase()}{user.provider?.slice(1)}
-                  </ThemedText>
-                </ThemedView>
-              </ThemedView>
-              <Button title="Sign Out" onPress={handleSignOut} />
-            </ThemedView>
-          ) : (
-            <ThemedView style={styles.loginPrompt}>
-              <ThemedText variant="title" style={styles.loginTitle}>Sign In to Save Settings</ThemedText>
-              <ThemedText style={styles.loginDescription}>
-                Sign in to sync your settings across devices.
-              </ThemedText>
-              <ThemedView style={styles.authButtonsContainer}>
-                {authAvailable.session && (
-                  <ThemedView style={styles.authButton}>
-                    <Button title="Sign in with Google" onPress={signInWithGoogle} />
-                  </ThemedView>
-                )}
-                {authAvailable.session && Platform.OS === 'ios' && (
-                  <ThemedView style={styles.authButton}>
-                    <Button title="Sign in with Microsoft" onPress={signInWithMicrosoft} />
-                  </ThemedView>
-                )}
-                {authAvailable.apple && Platform.OS === 'ios' && (
-                  <ThemedView style={styles.authButton}>
-                    <Button title="Sign in with Apple" onPress={signInWithApple} />
-                  </ThemedView>
-                )}
-              </ThemedView>
-            </ThemedView>
-          )}
-        </ThemedView>
-
         {/* Notification Settings Section */}
         <ThemedView 
           style={styles.section} 
