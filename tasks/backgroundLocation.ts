@@ -45,19 +45,12 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
     const dist = turf.distance(userPoint, turf.point(pt.coordinates), { units: 'meters' });
     const key = `${pt.coordinates[0].toFixed(6)},${pt.coordinates[1].toFixed(6)}`;
 
-    if (dist >= 100) {
-      if (notified.has(key)) {
-        notified.delete(key);
-        notifiedUpdated = true;
-      }
-    }
-
     if (dist <= threshold && !notified.has(key) && settings?.enabled) {
       try {
         const content: any = {
           title: '🚦 Approaching Intersection',
           body: 'Watch for cross traffic.',
-          sound: settings.soundEnabled ? true : false,
+          sound: true,
         };
 
         // On Android target the background-location channel explicitly

@@ -1,7 +1,7 @@
 {
   "name": "notifier",
   "main": "expo-router/entry",
-  "version": "2026.1.7",
+  "version": "2026.1.8",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",

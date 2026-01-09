@@ -18,7 +18,7 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   accessibilityMode: false,
   notifyDistance: 20,
   vibrationEnabled: true,
-  soundEnabled: false,
+  soundEnabled: true,
   voicePrompts: true,
   vibrationStrength: 2,
 };

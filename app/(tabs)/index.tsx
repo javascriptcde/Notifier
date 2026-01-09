@@ -7,7 +7,7 @@ import {
 } from '@maplibre/maplibre-react-native';
 import { lineString as ls, point as pt } from '@turf/helpers';
 import * as turf from '@turf/turf';
-import { GlassView } from 'expo-glass-effect';
+import { GlassEffect } from 'expo-glass-effect';
 import * as Location from 'expo-location';
 import type { Feature, LineString } from 'geojson';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -397,84 +397,94 @@ export default function MapScreen() {
 
       {/* Search overlay */}
       {searchVisible && (
-        <View style={styles.searchOverlay}>
-          {Platform.OS === 'ios' ? (
-            <GlassView style={styles.searchContainer}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search for places..."
-                value={searchText}
-                onChangeText={setSearchText}
-                autoFocus
-              />
-              <TouchableOpacity onPress={() => { setSearchVisible(false); setSearchText(''); setSuggestions([]); }}>
-                <Ionicons name="close" size={20} color="#666" />
-              </TouchableOpacity>
-            </GlassView>
-          ) : (
-            <View style={styles.searchContainer}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search for places..."
-                value={searchText}
-                onChangeText={setSearchText}
-                autoFocus
-              />
-              <TouchableOpacity onPress={() => { setSearchVisible(false); setSearchText(''); setSuggestions([]); }}>
-                <Ionicons name="close" size={20} color="#666" />
-              </TouchableOpacity>
-            </View>
-          )}
-          {suggestions.length > 0 && (
-            Platform.OS === 'ios' ? (
-              <GlassView style={styles.suggestionsList}>
-                <FlatList
-                  data={suggestions}
-                  keyExtractor={(item) => item.place_id.toString()}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity
-                      style={styles.suggestionItem}
-                      onPress={() => {
-                        setSelectedPlace(item);
-                        setSearchVisible(false);
-                        setSearchText('');
-                        setSuggestions([]);
-                        // Fly to the place
-                        const lat = parseFloat(item.lat);
-                        const lon = parseFloat(item.lon);
-                        smoothFlyTo([lon, lat], 0, 16, 0, 600);
-                      }}
-                    >
-                      <Text style={styles.suggestionText}>{item.display_name}</Text>
-                    </TouchableOpacity>
-                  )}
+        <View style={styles.searchOverlay} pointerEvents="box-none">
+          <View style={styles.searchContent}>
+            {Platform.OS === 'ios' ? (
+              <GlassEffect style={styles.searchContainer}>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search for places..."
+                  value={searchText}
+                  onChangeText={setSearchText}
+                  autoFocus
+                  placeholderTextColor="#999"
                 />
-              </GlassView>
+                <TouchableOpacity onPress={() => { setSearchVisible(false); setSearchText(''); setSuggestions([]); }}>
+                  <Ionicons name="close" size={20} color="#666" />
+                </TouchableOpacity>
+              </GlassEffect>
             ) : (
-              <FlatList
-                data={suggestions}
-                keyExtractor={(item) => item.place_id.toString()}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={styles.suggestionItem}
-                    onPress={() => {
-                      setSelectedPlace(item);
-                      setSearchVisible(false);
-                      setSearchText('');
-                      setSuggestions([]);
-                      // Fly to the place
-                      const lat = parseFloat(item.lat);
-                      const lon = parseFloat(item.lon);
-                      smoothFlyTo([lon, lat], 0, 16, 0, 600);
-                    }}
-                  >
-                    <Text style={styles.suggestionText}>{item.display_name}</Text>
-                  </TouchableOpacity>
-                )}
-                style={styles.suggestionsList}
-              />
-            )
-          )}
+              <View style={styles.searchContainer}>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search for places..."
+                  value={searchText}
+                  onChangeText={setSearchText}
+                  autoFocus
+                  placeholderTextColor="#999"
+                />
+                <TouchableOpacity onPress={() => { setSearchVisible(false); setSearchText(''); setSuggestions([]); }}>
+                  <Ionicons name="close" size={20} color="#666" />
+                </TouchableOpacity>
+              </View>
+            )}
+            {suggestions.length > 0 && (
+              Platform.OS === 'ios' ? (
+                <GlassEffect style={styles.suggestionsList} pointerEvents="box-none">
+                  <FlatList
+                    data={suggestions}
+                    keyExtractor={(item) => item.place_id.toString()}
+                    scrollEnabled={true}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={styles.suggestionItem}
+                        onPress={() => {
+                          setSelectedPlace(item);
+                          setSearchVisible(false);
+                          setSearchText('');
+                          setSuggestions([]);
+                          const lat = parseFloat(item.lat);
+                          const lon = parseFloat(item.lon);
+                          smoothFlyTo([lon, lat], 0, 16, 0, 600);
+                        }}
+                      >
+                        <Text style={styles.suggestionText}>{item.display_name}</Text>
+                      </TouchableOpacity>
+                    )}
+                  />
+                </GlassEffect>
+              ) : (
+                <View style={styles.suggestionsListContainer}>
+                  <FlatList
+                    data={suggestions}
+                    keyExtractor={(item) => item.place_id.toString()}
+                    scrollEnabled={true}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={styles.suggestionItem}
+                        onPress={() => {
+                          setSelectedPlace(item);
+                          setSearchVisible(false);
+                          setSearchText('');
+                          setSuggestions([]);
+                          const lat = parseFloat(item.lat);
+                          const lon = parseFloat(item.lon);
+                          smoothFlyTo([lon, lat], 0, 16, 0, 600);
+                        }}
+                      >
+                        <Text style={styles.suggestionText}>{item.display_name}</Text>
+                      </TouchableOpacity>
+                    )}
+                  />
+                </View>
+              )
+            )}
+          </View>
+          <TouchableOpacity
+            style={styles.overlayTapArea}
+            onPress={() => { setSearchVisible(false); setSearchText(''); setSuggestions([]); }}
+            activeOpacity={0}
+          />
         </View>
       )}
 
@@ -706,12 +716,21 @@ const styles=StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     zIndex: 300,
   },
+  searchContent: {
+    position: 'absolute',
+    top: 50,
+    left: 16,
+    right: 16,
+    maxHeight: '70%',
+    zIndex: 301,
+  },
+  overlayTapArea: {
+    flex: 1,
+  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    margin: 16,
-    marginTop: 60,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -729,13 +748,20 @@ const styles=StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
+    paddingVertical: 4,
   },
   suggestionsList: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginTop: 4,
+    marginTop: 8,
     borderRadius: 8,
-    maxHeight: 200,
+    maxHeight: 280,
+    overflow: 'hidden',
+  },
+  suggestionsListContainer: {
+    marginTop: 8,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    maxHeight: 280,
+    overflow: 'hidden',
     ...Platform.select({
       android: {
         elevation: 4,
